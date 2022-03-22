@@ -161,7 +161,7 @@ class ConveyorModel:
 
     def _stateTransfer(self, action):
         try:
-            self._state = _model_automata[self._state][action]
+            self._state = _model_automata[self._state][action] # itmo239
             if action == 'change' and self._spender is not None:
                 self._spender.update(self.env.time(), self.speed, len(self.objects))
         except KeyError:

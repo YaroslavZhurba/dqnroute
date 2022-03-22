@@ -609,6 +609,7 @@ class HasTime:
     def time(self) -> float:
         raise NotImplementedError()
 
+# ljust это что-то вроде выравнивания
 class HasLog(HasTime):
     def log(self, msg, force=False):
         #if force or True:

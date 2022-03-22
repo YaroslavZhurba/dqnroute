@@ -9,3 +9,5 @@ img*
 *.h5
 *.egg-info
 *.png
+.DS_Store
+.idea/*

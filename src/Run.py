@@ -2,6 +2,7 @@ import os
 import argparse
 import yaml
 import re
+import sys
 
 import hashlib
 import base64
@@ -34,7 +35,7 @@ from dqnroute.verification.router_graph import RouterGraph
 from dqnroute.verification.adversarial import PGDAdversary
 from dqnroute.verification.markov_analyzer import MarkovAnalyzer
 from dqnroute.verification.symbolic_analyzer import SymbolicAnalyzer, LipschitzBoundComputer
-from dqnroute.verification.nnet_verifier import NNetVerifier, marabou_float2str
+# from dqnroute.verification.nnet_verifier import NNetVerifier, marabou_float2str
 from dqnroute.verification.embedding_packer import EmbeddingPacker
 
 NETWORK_FILENAME = "../network.nnet"
@@ -118,7 +119,7 @@ parser.add_argument("--linux_marabou_memory_limit_mb", type=int, default=None,
 args = parser.parse_args()
 
 # dqn_emb = DQNroute-LE, centralized_simple = BSR
-router_types_supported = 'dqn_emb ppo_emb centralized_simple link_state simple_q reinforce_emb'.split(' ')
+router_types_supported = 'dqn_emb ppo_emb centralized_simple link_state simple_q reinforce_emb dqn_ppo'.split(' ')
 router_types = args.routing_algorithms
 assert len(router_types) > 0, '--routing_algorithms cannot be empty'
 router_types = re.split(', *', args.routing_algorithms)
@@ -128,6 +129,7 @@ assert len(set(router_types) - set(router_types_supported)) == 0, \
 dqn_emb_exists = 'dqn_emb' in router_types
 ppo_emb_exists = 'ppo_emb' in router_types
 reinforce_emb_exists = 'reinforce_emb' in router_types
+dqn_ppo_exists = 'dqn_ppo' in router_types
 nn_loading_needed = "dqn_emb" in router_types or args.command != "run"
 
 random_seed = args.random_seed
@@ -417,9 +419,12 @@ def dqn_experiments(
             print('Skip training process...')
 
         dqn_logs.append(dqn_log.getSeries(add_avg=True))
-
+        print('Break point')
     return dqn_logs
 
+# orig_stdout = sys.stdout
+# f = open('out.txt', 'w')
+# sys.stdout = f
 
 # whole pipeline
 if dqn_emb_exists:
@@ -443,9 +448,16 @@ if dqn_emb_exists:
 
     print(f'Model: {pretrain_path}')
 
-    dqn_combined_model_results = dqn_experiments(1, True, True, True, False, True)
+    # dqn_combined_model_results = dqn_experiments(1, True, True, True, True, True)
+
+    # pretrain model
+    # dqn_single_model_results = dqn_experiments(1, False, True, True, True, True)
+
+    # use already pretrained model
     dqn_single_model_results = dqn_experiments(1, False, True, True, False, True)
 
+# sys.stdout = orig_stdout
+# f.close()
 
 # PPO part (pre-train + train)
 def pretrain_ppo(
@@ -925,6 +937,242 @@ if reinforce_emb_exists:
         reinforce_serieses.append(reinforce_log.getSeries(add_avg=True))
 
 
+# DQN_PPO Part (Pretrain + train)
+def pretrain_dqn_ppo(
+        generated_data_size: int,
+        num_epochs: int,
+        dir_with_models: str,
+        pretrain_filename: str = None,
+        pretrain_dataset_filename: str = None,
+        use_full_topology: bool = True,
+):
+    def qnetwork_batches(net, data, batch_size=64, embedding=None):
+        n = graph_size
+        data_cols = []
+        amatrix_cols = get_amatrix_cols(n)
+        for tag, dim in net.add_inputs:
+            data_cols.append(amatrix_cols if tag == "amatrix" else add_inp_cols(tag, dim))
+        for a, b in make_batches(data.shape[0], batch_size):
+            batch = data[a:b]
+            addr = batch["addr"].values
+            dst = batch["dst"].values
+            nbr = batch["neighbour"].values
+            if embedding is not None:
+                amatrices = batch[amatrix_cols].values
+                new_btch = []
+                for addr_, dst_, nbr_, A in zip(addr, dst, nbr, amatrices):
+                    A = A.reshape(n, n)
+                    embedding.fit(A)
+                    new_addr = embedding.transform(A, int(addr_))
+                    new_dst = embedding.transform(A, int(dst_))
+                    new_nbr = embedding.transform(A, int(nbr_))
+                    new_btch.append((new_addr, new_dst, new_nbr))
+                [addr, dst, nbr] = stack_batch(new_btch)
+            addr_inp = torch.FloatTensor(addr)
+            dst_inp = torch.FloatTensor(dst)
+            nbr_inp = torch.FloatTensor(nbr)
+            inputs = tuple(torch.FloatTensor(batch[cols].values) for cols in data_cols)
+            output = torch.FloatTensor(batch["predict"].values)
+            yield (addr_inp, dst_inp, nbr_inp) + inputs, output
+
+    def qnetwork_pretrain_epoch(net, optimizer, data, **kwargs):
+        loss_func = torch.nn.MSELoss()
+        for batch, target in qnetwork_batches(net, data, **kwargs):
+            optimizer.zero_grad()
+            output = net(*batch)
+            loss = loss_func(output, target.unsqueeze(1))
+            loss.backward()
+            optimizer.step()
+            yield float(loss)
+
+    def qnetwork_pretrain(net, data, optimizer="rmsprop", **kwargs):
+        optimizer = get_optimizer(optimizer)(net.parameters())
+        epochs_losses = []
+        for _ in tqdm(range(num_epochs), desc='DQN PPO Pretraining...'):
+            sum_loss = 0
+            loss_cnt = 0
+            for loss in qnetwork_pretrain_epoch(net, optimizer, data, **kwargs):
+                sum_loss += loss
+                loss_cnt += 1
+            epochs_losses.append(sum_loss / loss_cnt)
+        if pretrain_filename is not None:
+            # label changed by Igor:
+            net.change_label(pretrain_filename)
+            # net._label = pretrain_filename
+            net.save()
+        return epochs_losses
+
+    data_conv = gen_episodes_progress(
+        'dqn_oneout',  # TODO fix it
+        generated_data_size,
+        ignore_saved=True,
+        context="conveyors",
+        random_seed=random_seed,
+        run_params=scenario,
+        save_path=pretrain_dataset_filename,
+        use_full_topology=use_full_topology
+    )
+    data_conv.loc[:, "working"] = 1.0
+    shuffled_data = data_conv.sample(frac=1)
+
+    conv_emb = CachedEmbedding(LaplacianEigenmap, dim=emb_dim)
+
+    network_args = {
+        'scope': dir_with_models,
+        'activation': router_settings['dqn']['activation'],
+        'layers': router_settings['dqn']['layers'],
+        'embedding_dim': emb_dim,
+    }
+    conveyor_network_ng_emb = QNetwork(graph_size, **network_args)
+
+    conveyor_network_ng_emb_losses = qnetwork_pretrain(
+        conveyor_network_ng_emb,
+        shuffled_data,
+        embedding=conv_emb
+    )
+
+    return conveyor_network_ng_emb_losses
+
+
+def train_dqn_ppo(
+        progress_step: int,
+        router_type: str,
+        dir_with_models: str,
+        pretrain_filename: str,
+        train_filename: str,
+        random_seed: int,
+        work_with_files: bool,
+        retrain: bool,
+        use_reinforce: bool = True,
+        use_combined_model: bool = False
+):
+    scenario["settings"]["router"][router_type]["use_reinforce"] = use_reinforce
+    scenario["settings"]["router"][router_type]["use_combined_model"] = use_combined_model
+    scenario["settings"]["router"][router_type]["scope"] = dir_with_models
+    scenario["settings"]["router"][router_type]["load_filename"] = pretrain_filename
+
+    if retrain:
+        # TODO get rid of this environmental variable
+        if "OMIT_TRAINING" in os.environ:
+            del os.environ["OMIT_TRAINING"]
+    else:
+        os.environ["OMIT_TRAINING"] = "True"
+
+    event_series, runner = run_single(
+        run_params=scenario,
+        router_type=router_type,
+        progress_step=progress_step,
+        ignore_saved=[True],
+        random_seed=random_seed
+    )
+
+    world = runner.world
+    some_router = next(iter(next(iter(world.handlers.values())).routers.values()))
+
+    net = some_router.brain
+    net.change_label(train_filename)
+
+    # save or load the trained network
+    if work_with_files:
+        if retrain:
+            if some_router.use_single_neural_network:
+                net.save()
+            else:
+                print(
+                    "Warning: saving/loading models trained in simulation is only implemented "
+                    "when use_single_neural_network = True. The models were not saved to disk."
+                )
+        else:
+            net.restore()
+
+    return event_series, world
+
+
+def dqn_ppo_experiments(
+        n: int,
+        use_combined_model: bool = True,
+        use_full_topology: bool = True,
+        use_reinforce: bool = True,
+        process_pretrain: bool = True,
+        process_train: bool = True
+):
+    dqn_logs = []
+
+    for _ in range(n):
+        if process_pretrain:
+            print('Pretraining DQN PPO Models...')
+            dqn_losses = pretrain_dqn_ppo(
+                pretrain_data_size,
+                pretrain_epochs_num,
+                dir_with_models,
+                pretrain_filename,
+                data_path,
+                use_full_topology=use_full_topology,
+            )
+        else:
+            print(f'Using the already pretrained model...')
+
+        if process_train:
+            print('Training DQN PPO Model...')
+            dqn_log, dqn_world = train_dqn_ppo(
+                train_data_size,
+                'dqn_ppo',
+                dir_with_models,
+                pretrain_filename,
+                train_filename,
+                random_seed,
+                True,
+                True,
+                use_reinforce=use_reinforce,
+                use_combined_model=use_combined_model
+            )
+        else:
+            print('Skip training process...')
+
+        dqn_logs.append(dqn_log.getSeries(add_avg=True))
+        print('Break point')
+    return dqn_logs
+
+# orig_stdout = sys.stdout
+# f = open('out.txt', 'w')
+# sys.stdout = f
+
+# whole pipeline
+if dqn_ppo_exists:
+    dqn_serieses = []
+
+    dqn_emp_config = scenario['settings']['router']['dqn_ppo']
+
+    dir_with_models = 'conveyor_models_dqn_ppo'
+
+    pretrain_filename = f'pretrained{filename_suffix}'
+    pretrain_path = Path(TORCH_MODELS_DIR) / dir_with_models / pretrain_filename
+
+    data_filename = f'pretrain_data_ppo{filename_suffix}'
+    data_path = f'../logs/{data_filename}'
+
+    train_filename = f'trained{filename_suffix}'
+    train_path = Path(TORCH_MODELS_DIR) / dir_with_models / train_filename
+
+    do_pretrain = force_pretrain or not pretrain_path.exists() or True
+    do_train = force_train or not train_path.exists() or args.command == 'run' or True
+
+    print(f'Model: {pretrain_path}')
+
+    # dqn_combined_model_results = dqn_experiments(1, True, True, True, True, True)
+
+    # pretrain model
+    # dqn_single_model_results = dqn_experiments(1, False, True, True, True, True)
+
+    # use already pretrained model
+    dqn_single_model_results = dqn_ppo_experiments(1, False, True, True, True, True)
+
+# sys.stdout = orig_stdout
+# f.close()
+
+# The End of all algos
+
+
 def train(
         progress_step: int,
         router_type: str,
@@ -962,11 +1210,11 @@ def get_symbolic_analyzer() -> SymbolicAnalyzer:
                             args.verification_lr, delta_q_max=args.input_max_delta_q)
 
 
-def get_nnet_verifier() -> NNetVerifier:
-    assert args.marabou_path is not None, \
-        "You must specify --verification_marabou_path for command embedding_adversarial_verification."
-    return NNetVerifier(g, args.marabou_path, NETWORK_FILENAME, PROPERTY_FILENAME, probability_smoothing,
-                        softmax_temperature, emb_dim, args.linux_marabou_memory_limit_mb)
+# def get_nnet_verifier() -> NNetVerifier:
+#     assert args.marabou_path is not None, \
+#         "You must specify --verification_marabou_path for command embedding_adversarial_verification."
+#     return NNetVerifier(g, args.marabou_path, NETWORK_FILENAME, PROPERTY_FILENAME, probability_smoothing,
+#                         softmax_temperature, emb_dim, args.linux_marabou_memory_limit_mb)
 
 
 def get_sources(sink: AgentId) -> List[AgentId]:
@@ -1012,12 +1260,12 @@ if args.command == "run":
             "link_state": "Shortest paths", "simple_q": "Q-routing", "pred_q": "PQ-routing",
             "glob_dyn": "Global-dynamic", "dqn": "DQN", "dqn_oneout": "DQN (1-out)",
             "dqn_emb": "DQN-LE", "centralized_simple": "Centralized control", "ppo_emb": "PPO",
-            'reinforce_emb': 'REINFORCE'
+            'reinforce_emb': 'REINFORCE', 'dqn_ppo': "DQN PPO"
         }, "conveyors": {
             "link_state": "Vyatkin-Black", "simple_q": "Q-routing", "pred_q": "PQ-routing",
             "glob_dyn": "Global-dynamic", "dqn": "DQN", "dqn_oneout": "DQN (1-out)",
             "dqn_emb": "DQN-LE", "centralized_simple": "BSR", "ppo_emb": "PPO",
-            'reinforce_emb': 'REINFORCE'
+            'reinforce_emb': 'REINFORCE', 'dqn_ppo': "DQN PPO"
         }
     }
 
@@ -1056,8 +1304,10 @@ if args.command == "run":
 
     if dqn_emb_exists:
         single_series = get_results(dqn_single_model_results, 'DQN-LE-SINGLE')
-        combined_series = get_results(dqn_combined_model_results, 'DQN-LE-COMBINED')
+        # combined_series = get_results(dqn_combined_model_results, 'DQN-LE-COMBINED')
 
+    if dqn_ppo_exists:
+        single_series = get_results(dqn_single_model_results, 'DQN-PPO-SINGLE')
 
     if ppo_emb_exists:
         series += [ppo_log.getSeries(add_avg=True)]
@@ -1079,7 +1329,8 @@ if args.command == "run":
 
     # perform training/simulation with other approaches
     for router_type in router_types:
-        if router_type != "dqn_emb" and router_type != 'ppo_emb' and router_type != 'reinforce_emb':
+        if router_type != "dqn_emb" and router_type != 'ppo_emb' and router_type != 'reinforce_emb' \
+                and router_type != "dqn_ppo":
             s, _ = train(train_data_size, router_type, random_seed)
             series += [s.getSeries(add_avg=True)]
             series_types += [router_type]

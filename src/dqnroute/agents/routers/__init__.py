@@ -9,3 +9,4 @@ from .link_state import *
 from .dqn import *
 from .ppo import *
 from .reinforce import *
+from .dqn_ppo import *

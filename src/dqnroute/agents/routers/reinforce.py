@@ -203,7 +203,7 @@ class Reinforce(LinkStateRouter, RewardAgent):
             PackageHistory.addToHistory(msg.pkg, self, reward, action_log_prob)
 
             if len(PackageHistory.finished_packages) > 128:
-                # PackageHistory.learn()
+                PackageHistory.learn()
                 pass
 
             return []

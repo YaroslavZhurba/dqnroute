@@ -66,7 +66,7 @@ class ConveyorFactory(HandlerFactory):
             dyn_env.register_var('total_nrg', 0)
             self.conveyor_dyn_envs[conv_id] = dyn_env
 
-    def centralized(self):
+    def centralized(self): # wtf
         return issubclass(self.RouterClass, MasterHandler)
 
     def dynEnv(self):
@@ -479,7 +479,7 @@ class ConveyorsRunner(SimulationRunner):
 
         all_nodes = list(self.world.conn_graph.nodes)
         for node in all_nodes:
-            self.world.passToAgent(node, WireInMsg(-1, InitMessage({})))
+            self.world.passToAgent(node, WireInMsg(-1, InitMessage({}))) # wtf ??? wireMsg1
 
         bag_distr = self.run_params['settings']['bags_distr']
         sources = list(self.run_params['configuration']['sources'].keys())
@@ -517,7 +517,7 @@ class ConveyorsRunner(SimulationRunner):
                 # adding a tiny noise to delta
                 delta = period['delta'] + round(np.random.normal(0, 0.5), 2)
 
-                cur_sources = period.get('sources', sources)
+                cur_sources = period.get('sources', sources) # wtf ???
                 cur_sinks = period.get('sinks', sinks)
                 simult_sources = period.get("simult_sources", 1)
                 #print(period, cur_sources)

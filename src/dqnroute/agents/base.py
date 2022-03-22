@@ -18,7 +18,7 @@ class BrokenInterfaceError(Exception):
         self.nbr = nbr
         self.msg = msg
 
-
+#  Agent id has a strange type
 class EventHandler(HasLog):
     """
     An abstract class which handles `WorldEvent`s and produces other `WorldEvent`s.

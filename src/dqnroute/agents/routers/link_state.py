@@ -18,10 +18,13 @@ class AbstractStateHandler(MessageHandler):
         self.seq_num = 0
         self.announcements = {}
 
+    # wtf ???
     def init(self, config) -> List[WorldEvent]:
         msgs = super().init(config)
         return msgs + self._announceState()
 
+    # not sure
+    # handle message that claim that net topology has changed
     def handleMsgFrom(self, sender: AgentId, msg: Message) -> List[WorldEvent]:
         if isinstance(msg, StateAnnouncementMsg):
             if msg.node == self.id:
@@ -40,6 +43,7 @@ class AbstractStateHandler(MessageHandler):
         else:
             return super().handleMsgFrom(sender, msg)
 
+    # make announce State
     def _announceState(self) -> List[Message]:
         state = self.getState()
         if state is None:
