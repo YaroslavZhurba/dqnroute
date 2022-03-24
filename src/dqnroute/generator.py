@@ -99,7 +99,7 @@ def _gen_episodes(
 
     cols = ['addr', 'dst']
 
-    if 'ppo' in router_type:
+    if 'ppo' in router_type: #wtf
         for inp in additional_inputs:
             cols += add_input_cols(inp['tag'], inp.get('dim', n))
         cols += ['next_addr', 'addr_v_func']

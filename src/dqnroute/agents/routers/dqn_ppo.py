@@ -20,7 +20,7 @@ from ...networks import *
 
 logger = logging.getLogger(DQNROUTE_LOGGER)
 
-
+# нужна, когда юзаем single network wtf
 class SharedBrainStorage:
     INSTANCE = None
     PROCESSED_NODES = 0
@@ -208,6 +208,8 @@ class DQNPPORouterOO(DQNPPORouter):
     Variant of DQN router which uses Q-network with scalar output.
     """
 
+    # создает нейронную сеть, принимает d, n, y, G выход скаляр
+    # какой скаляр?? wtf
     def _makeBrain(self, additional_inputs=[], **kwargs):
         return QNetwork(len(self.nodes), additional_inputs=additional_inputs,
                         one_out=True, **kwargs)

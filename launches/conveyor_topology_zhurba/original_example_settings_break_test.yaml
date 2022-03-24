@@ -72,6 +72,8 @@ settings:
       embedding:
         alg: 'lap'
         dim: 10
+    dqn_pp_oneout:
+      <<: *dqn
     dqn_ppo:
       <<: *dqn
       energy_reward_weight: 0.5

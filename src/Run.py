@@ -1003,7 +1003,7 @@ def pretrain_dqn_ppo(
         return epochs_losses
 
     data_conv = gen_episodes_progress(
-        'dqn_oneout',  # TODO fix it
+        'dqn_pp_oneout',  # TODO fix it
         generated_data_size,
         ignore_saved=True,
         context="conveyors",
