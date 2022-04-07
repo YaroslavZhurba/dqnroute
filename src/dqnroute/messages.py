@@ -260,6 +260,31 @@ class SlaveEvent(WorldEvent):
 # Computer network events/actions
 #
 
+# Class to store partial bag paths
+class Bag_info:
+    def __init__(self, max_length=3):
+        self.path = []
+        self.q_value = None
+        self.max_length = max_length
+
+    def get(self, ind):
+        return self.path[ind]
+
+    def append(self, router_state_action_reward):
+        self.path.append(router_state_action_reward)
+        if len(self.path) > self.max_length:
+            self.path.pop(0)
+
+    def getQvalue(self):
+        return self.q_value
+
+    def setQvalue(self, new_q_value):
+        self.q_value = new_q_value
+
+    def getRouter(self, ind):
+        return self.path[ind][0]
+
+
 # Packages
 @total_ordering
 class Package:
