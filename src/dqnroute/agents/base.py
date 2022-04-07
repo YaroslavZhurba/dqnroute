@@ -435,7 +435,7 @@ class ConveyorRewardAgent(RewardAgent):
         super().__init__(**kwargs)
         self._e_weight = energy_reward_weight
 
-    def _computeReward(self, msg: ConveyorRewardMsg, old_reward_data):
+    def _computeReward(self, msg: ConveyorRewardMsg, old_reward_data): #wtf ok
         time_sent, _ = old_reward_data
         time_processed, energy_gap = msg.reward_data
         time_gap = time_processed - time_sent
@@ -447,7 +447,7 @@ class ConveyorRewardAgent(RewardAgent):
         time_processed, energy_gap = reward_data
         return ConveyorRewardMsg(self.id, bag, Q_estimate, time_processed, energy_gap)
 
-    def _getRewardData(self, bag: Bag, data):
+    def _getRewardData(self, bag: Bag, data): #wtf
         cur_time = self.env.time()
         # delay = self.conv_stop_delay
         # consumption = self.env.energy_consumption()

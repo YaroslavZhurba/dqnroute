@@ -979,7 +979,7 @@ def pretrain_dqn_ppo(
         loss_func = torch.nn.MSELoss()
         for batch, target in qnetwork_batches(net, data, **kwargs):
             optimizer.zero_grad()
-            output = net(*batch)
+            output = net(*batch)  # don't understand
             loss = loss_func(output, target.unsqueeze(1))
             loss.backward()
             optimizer.step()
@@ -1015,7 +1015,7 @@ def pretrain_dqn_ppo(
     data_conv.loc[:, "working"] = 1.0
     shuffled_data = data_conv.sample(frac=1)
 
-    conv_emb = CachedEmbedding(LaplacianEigenmap, dim=emb_dim)
+    conv_emb = CachedEmbedding(LaplacianEigenmap, dim=emb_dim) #wtf
 
     network_args = {
         'scope': dir_with_models,

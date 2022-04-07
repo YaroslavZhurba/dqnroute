@@ -92,7 +92,7 @@ def _gen_episodes(
 
     for rid in nodes:
         router = factory._makeHandler(rid)
-        update_network(router, G)
+        update_network(router, G) #wtf
         routers[rid] = router
         if additional_inputs is None:
             additional_inputs = router.additional_inputs
@@ -163,7 +163,7 @@ def _gen_episodes(
             pkg = Package(pkg_id, DEF_PKG_SIZE, dst, 0, None)
             state = list(router._getNNState(pkg, nbrs))
 
-            def plen_func(v):
+            def plen_func(v): # count path length from current to dst using v as next step
                 plen = nx.dijkstra_path_length(G, v, dst, weight=factory.edge_weight)
                 elen = G.get_edge_data(cur, v)[factory.edge_weight]
                 return -(plen + elen)

@@ -20,6 +20,19 @@ from ...networks import *
 
 logger = logging.getLogger(DQNROUTE_LOGGER)
 
+
+class InstantMessagesSimulationFix:
+
+    routers = defaultdict(dict)
+
+    @staticmethod
+    def addToSimulation(router):
+        InstantMessagesSimulationFix.routers[router.id] = router
+
+    @staticmethod
+    def sendMsg(sender: AgentId, to: AgentId, msg: Message):
+        InstantMessagesSimulationFix.routers[to].handleMsgFrom(sender, msg)
+
 # нужна, когда юзаем single network wtf
 class SharedBrainStorage:
     INSTANCE = None
@@ -52,6 +65,7 @@ class DQNPPORouter(LinkStateRouter, RewardAgent):
                  use_single_neural_network: bool = False,
                  use_reinforce: bool = True,
                  use_combined_model: bool = False,
+                 count = 3,
                  **kwargs):
         """
         Parameters added by Igor:
@@ -77,6 +91,8 @@ class DQNPPORouter(LinkStateRouter, RewardAgent):
         self.use_reinforce = use_reinforce
         self.use_combined_model = use_combined_model
 
+        self.count = count
+
         # changed by Igor: brain loading process
         def load_brain():
             b = brain
@@ -99,13 +115,21 @@ class DQNPPORouter(LinkStateRouter, RewardAgent):
         self.optimizer = get_optimizer(optimizer)(self.brain.parameters())
         self.loss_func = nn.MSELoss()
 
+        InstantMessagesSimulationFix.addToSimulation(self)
+        self.bag_info_storage = defaultdict(dict)
+
     def route(self, sender: AgentId, pkg: Package, allowed_nbrs: List[AgentId]) -> Tuple[AgentId, List[Message]]:
         if self.max_act_time is not None and self.env.time() > self.max_act_time:
             return super().route(sender, pkg, allowed_nbrs)
         else:
             to, estimate, saved_state = self._act(pkg, allowed_nbrs)
             reward = self.registerResentPkg(pkg, estimate, to, saved_state)
-            return to, [OutMessage(self.id, sender, reward)] if sender[0] != 'world' else []
+            # return to, [OutMessage(self.id, sender, reward), OutMessage(self.id, to, "239")] if sender[0] != 'world' else [] #wtf
+            if sender[0] != 'world':
+                bag_info = []
+                InstantMessagesSimulationFix.sendMsg(self.id, to, UpdateTableMsg(to, bag_info))
+                InstantMessagesSimulationFix.sendMsg(self.id, sender, PathRewardMsg(sender, bag_info, self.count))
+            return to, [OutMessage(self.id, sender, reward)] if sender[0] != 'world' else [] #wtf
 
     def handleMsgFrom(self, sender: AgentId, msg: Message) -> List[Message]:
         if isinstance(msg, RewardMsg):
@@ -115,6 +139,12 @@ class DQNPPORouter(LinkStateRouter, RewardAgent):
             if self.use_reinforce:
                 self._replay()
             return []
+        elif isinstance(msg, PathRewardMsg):
+            if msg.count > 0:
+                msg.count = msg.count - 1
+                InstantMessagesSimulationFix.sendMsg(self.id, self.id, msg) # fix
+        elif isinstance(msg, UpdateTableMsg):
+            pass
         else:
             return super().handleMsgFrom(sender, msg)
 
@@ -135,9 +165,9 @@ class DQNPPORouter(LinkStateRouter, RewardAgent):
 
     def _predict(self, x):
         self.brain.eval()
-        return self.brain(*map(torch.from_numpy, x)).clone().detach().numpy()
+        return self.brain(*map(torch.from_numpy, x)).clone().detach().numpy() #wtf
 
-    def _train(self, x, y):
+    def _train(self, x, y): #wtf
         self.brain.train()
         self.optimizer.zero_grad()
         output = self.brain(*map(torch.from_numpy, x))
@@ -175,7 +205,7 @@ class DQNPPORouter(LinkStateRouter, RewardAgent):
 
         return tuple(input)
 
-    def _sampleMemStacked(self):
+    def _sampleMemStacked(self): #wtf
         """
         Samples a batch of episodes from memory and stacks
         states, actions and values from a batch together.
@@ -286,14 +316,14 @@ class DQNPPORouterEmb(DQNPPORouterOO):
     def _nodeRepr(self, node):
         return self.embedding.transform(node).astype(np.float32)
 
-    def networkStateChanged(self):
+    def networkStateChanged(self): # wtf
         num_nodes = len(self.network.nodes)
         num_edges = len(self.network.edges)
 
-        if not self.network_initialized and num_nodes == len(self.nodes) and num_edges == self.init_edges_num:
+        if not self.network_initialized and num_nodes == len(self.nodes) and num_edges == self.init_edges_num: #wtf
             self.network_initialized = True
 
-        if self.network_initialized and (num_edges != self.prev_num_edges or num_nodes != self.prev_num_nodes):
+        if self.network_initialized and (num_edges != self.prev_num_edges or num_nodes != self.prev_num_nodes): #wtf
             self.prev_num_nodes = num_nodes
             self.prev_num_edges = num_edges
             self.embedding.fit(self.network, weight=self.edge_weight)

@@ -383,6 +383,14 @@ class PassedBagEvent(WorldEvent):
 #
 # Service messages
 #
+class UpdateTableMsg(ServiceMessage):
+    def __init__(self, origin: AgentId, pkg_info):
+        super().__init__(origin=origin, pkg_info=pkg_info)
+
+class PathRewardMsg(ServiceMessage):
+    def __init__(self, origin: AgentId, pkg_info, count):
+        super().__init__(origin=origin, pkg_info=pkg_info,count=count)
+
 
 class RewardMsg(ServiceMessage):
     def __init__(self, origin: AgentId, pkg: Package, Q_estimate: float, reward_data):
