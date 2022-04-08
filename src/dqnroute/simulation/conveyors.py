@@ -115,7 +115,7 @@ class ConveyorFactory(HandlerFactory):
         elif a_type == 'source':
             return RouterSource(**common_args)
         elif a_type == 'sink':
-            return RouterSink(**common_args)
+            return RouterSink(**common_args) # here fix
         elif a_type == 'diverter':
             return RouterDiverter(**common_args)
         else:

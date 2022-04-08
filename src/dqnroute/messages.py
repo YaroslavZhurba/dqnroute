@@ -262,12 +262,13 @@ class SlaveEvent(WorldEvent):
 
 # Class to store partial bag paths
 class Bag_info:
-    def __init__(self, max_length=3):
+    def __init__(self, bag_id, max_length=3):
         self.path = []
         self.q_value = None
         self.max_length = max_length
+        self.bag_id = bag_id
 
-    def get(self, ind):
+    def getPathRouter(self, ind):
         return self.path[ind]
 
     def append(self, router_state_action_reward):
@@ -283,6 +284,9 @@ class Bag_info:
 
     def getRouter(self, ind):
         return self.path[ind][0]
+
+    def isFullPath(self):
+        return len(self.path) == self.max_length
 
 
 # Packages
@@ -409,12 +413,12 @@ class PassedBagEvent(WorldEvent):
 # Service messages
 #
 class UpdateTableMsg(ServiceMessage):
-    def __init__(self, origin: AgentId, pkg_info):
-        super().__init__(origin=origin, pkg_info=pkg_info)
+    def __init__(self, origin: AgentId, bag_info):
+        super().__init__(origin=origin, bag_info=bag_info)
 
 class PathRewardMsg(ServiceMessage):
-    def __init__(self, origin: AgentId, pkg_info, count):
-        super().__init__(origin=origin, pkg_info=pkg_info,count=count)
+    def __init__(self, origin: AgentId, bag_info, count):
+        super().__init__(origin=origin, bag_info=bag_info, count=count)
 
 
 class RewardMsg(ServiceMessage):
