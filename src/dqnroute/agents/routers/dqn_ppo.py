@@ -199,12 +199,34 @@ class DQNPPORouter(LinkStateRouter, RewardAgent):
 
             if msg.count != 0:
                 send_to = self._getPathBack(bag_info, msg.count)
+                # if msg.all_learn():
+                #     self._learn(bag_info, msg.count)
                 InstantMessagesSimulationFix.sendMsg(self.id, send_to, msg)
-            else:
-                info = bag_info.getPathRouter(0)
-                print("learn bag_id=" + str(bag_info.bag_id) + ", agent_id=" + str(self.id))
+            # else:
+            #     self._learn(bag_info, msg.count)
+                # print("learn bag_id=" + str(bag_info.bag_id) + ", agent_id=" + str(self.id))
         else:
             return super().handleMsgFrom(sender, msg)
+
+    def _sumRewards(self, bag_info, count):
+        rewards = 0
+        l = self.count
+        for i in range(l - count, l):
+            info = bag_info.getPathRouter(i)
+            rewards += info[3]
+        return rewards
+
+    def _learn(self, bag_info, count):
+        l = self.count
+        rewards = self._sumRewards(bag_info, l - count)
+        Q_new = rewards + bag_info.getQvalue()
+        action = bag_info.getPathRouter(count)[2]
+        prev_state = bag_info.getState()
+        self.memory.add((prev_state, action[1], -Q_new))
+
+        if self.use_reinforce:
+            self._replay()
+        return []
 
     def _makeInfo(self, router, state, action_to, reward):
         return (router, state, action_to, reward)

@@ -437,8 +437,8 @@ class UpdateTableMsg(ServiceMessage):
         super().__init__(origin=origin, bag_info=bag_info)
 
 class PathRewardMsg(ServiceMessage):
-    def __init__(self, origin: AgentId, bag_info, count):
-        super().__init__(origin=origin, bag_info=bag_info, count=count)
+    def __init__(self, origin: AgentId, bag_info, count, all_learn=True):
+        super().__init__(origin=origin, bag_info=bag_info, count=count, all_learn=all_learn)
 
 
 class RewardMsg(ServiceMessage):
