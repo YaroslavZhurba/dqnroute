@@ -151,9 +151,9 @@ class DQNPPORouter(LinkStateRouter, RewardAgent):
                     # info = self._makeInfo(sender, saved_state, to, "reward")
                     rsar = bag_info.getPathLast()
                     # reward = self._countReward()
-                    new_reward = InstantMessagesSimulationFix.sendMsgAndReturn(self.id, sender, rewardMsg)
-                    new_rsar = (rsar[0], rsar[1], rsar[2], new_reward) #count reward
-                    bag_info.updateLast(new_rsar)
+                    # new_reward = InstantMessagesSimulationFix.sendMsgAndReturn(self.id, sender, rewardMsg)
+                    # new_rsar = (rsar[0], rsar[1], rsar[2], new_reward) #count reward
+                    # bag_info.updateLast(new_rsar)
                     bag_info.setQvalue(estimate)
                     bag_info.setState(saved_state)
                     self._addBagInfoToStorage(bag_info)
@@ -177,7 +177,12 @@ class DQNPPORouter(LinkStateRouter, RewardAgent):
                     self._addBagInfoToStorage(bag_info)
                 bag_info = self._getBagInfo(pkg.id)
                 if bag_info.isFullPath():
-                    InstantMessagesSimulationFix.sendMsg(self.id, sender, PathRewardMsg(sender, bag_info, self.count))
+                    to_num = to[1]
+                    if to_num >= 14 and to_num <= 17:
+                        InstantMessagesSimulationFix.sendMsg(self.id, sender,
+                                                             PathRewardMsg(sender, bag_info, self.count, True))
+                    else:
+                        InstantMessagesSimulationFix.sendMsg(self.id, sender, PathRewardMsg(sender, bag_info, self.count))
                     # if not already_passed:
                     #     print(str(self.id) + ", package_id=" + str(pkg.id))
 
@@ -215,7 +220,20 @@ class DQNPPORouter(LinkStateRouter, RewardAgent):
         else:
             return super().handleMsgFrom(sender, msg)
 
-    def receiveReward(self, msg: RewardMsg): # omg1
+    def registerResentPkgPPO(self, pkg: Package, Q_estimate: float, action, data, **kwargs) -> RewardMsg:  # omg3
+        rdata = self._getRewardData(pkg, data)
+        self._pending_pkgs[pkg.id] = (action, rdata, data)
+
+        # Igor Buzhinsky's hack to suppress a no-key exception in receiveReward
+        self._last_tuple = action, rdata, data
+
+        return self._mkRewardPPO(pkg, Q_estimate, rdata)
+
+    def _mkRewardPPO(self, bag: Bag, Q_estimate: float, reward_data) -> ConveyorRewardMsg: # omg4
+        time_processed, energy_gap = reward_data
+        return ConveyorRewardMsg(self.id, bag, Q_estimate, time_processed, energy_gap)
+
+    def receiveRewardPPO(self, msg: RewardMsg): # omg1
         try:
             action, old_reward_data, saved_data = self._pending_pkgs.pop(msg.pkg.id)
         except KeyError:

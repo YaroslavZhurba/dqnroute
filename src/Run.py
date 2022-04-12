@@ -419,7 +419,7 @@ def dqn_experiments(
             print('Skip training process...')
 
         dqn_logs.append(dqn_log.getSeries(add_avg=True))
-        print('Break point')
+        # print('Break point')
     return dqn_logs
 
 # orig_stdout = sys.stdout
@@ -1130,7 +1130,7 @@ def dqn_ppo_experiments(
             print('Skip training process...')
 
         dqn_logs.append(dqn_log.getSeries(add_avg=True))
-        print('Break point')
+        # print('Break point')
     return dqn_logs
 
 # orig_stdout = sys.stdout

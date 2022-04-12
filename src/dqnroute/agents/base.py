@@ -382,7 +382,7 @@ class RewardAgent(object):
         self._pending_pkgs = {}
         self._debug_pkgs = {}
 
-    def registerResentPkg(self, pkg: Package, Q_estimate: float, action, data, **kwargs) -> RewardMsg:
+    def registerResentPkg(self, pkg: Package, Q_estimate: float, action, data, **kwargs) -> RewardMsg: #omg3
         rdata = self._getRewardData(pkg, data)
         self._pending_pkgs[pkg.id] = (action, rdata, data)
         
@@ -391,7 +391,7 @@ class RewardAgent(object):
         
         return self._mkReward(pkg, Q_estimate, rdata)
 
-    def receiveReward(self, msg: RewardMsg):
+    def receiveReward(self, msg: RewardMsg): # omg1
         try:
             action, old_reward_data, saved_data = self._pending_pkgs.pop(msg.pkg.id)
         except KeyError:
@@ -435,15 +435,16 @@ class ConveyorRewardAgent(RewardAgent):
         super().__init__(**kwargs)
         self._e_weight = energy_reward_weight
 
-    def _computeReward(self, msg: ConveyorRewardMsg, old_reward_data): #wtf ok
+    def _computeReward(self, msg: ConveyorRewardMsg, old_reward_data): #omg2
         time_sent, _ = old_reward_data
         time_processed, energy_gap = msg.reward_data
         time_gap = time_processed - time_sent
         
         # self.log('time gap: {}, nrg gap: {}'.format(time_gap, energy_gap), True)
-        return msg.Q_estimate + time_gap + self._e_weight * energy_gap
+        return time_gap + self._e_weight * energy_gap
+        # return msg.Q_estimate + time_gap + self._e_weight * energy_gap
 
-    def _mkReward(self, bag: Bag, Q_estimate: float, reward_data) -> ConveyorRewardMsg:
+    def _mkReward(self, bag: Bag, Q_estimate: float, reward_data) -> ConveyorRewardMsg: # omg4
         time_processed, energy_gap = reward_data
         return ConveyorRewardMsg(self.id, bag, Q_estimate, time_processed, energy_gap)
 
