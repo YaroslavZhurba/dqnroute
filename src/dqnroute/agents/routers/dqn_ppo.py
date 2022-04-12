@@ -33,6 +33,10 @@ class InstantMessagesSimulationFix:
     def sendMsg(sender: AgentId, to: AgentId, msg: Message):
         InstantMessagesSimulationFix.routers[to].handleMsgFrom(sender, msg)
 
+    @staticmethod
+    def sendMsgAndReturn(sender: AgentId, to: AgentId, msg: Message):
+        return InstantMessagesSimulationFix.routers[to].handleMsgFrom(sender, msg)
+
 # нужна, когда юзаем single network wtf
 class SharedBrainStorage:
     INSTANCE = None
@@ -123,13 +127,13 @@ class DQNPPORouter(LinkStateRouter, RewardAgent):
     def route(self, sender: AgentId, pkg: Package, allowed_nbrs: List[AgentId]) -> Tuple[AgentId, List[Message]]:
         # if self.id[1] == 8 or self.id[1] == 6:
         #     print('PREend route')
-        if self.id[1] == 4 and allowed_nbrs[0][1] == 17:
-            print('PREend route')
+        # if self.id[1] == 4 and allowed_nbrs[0][1] == 17:
+        #     print('PREend route')
         if self.max_act_time is not None and self.env.time() > self.max_act_time:
             return super().route(sender, pkg, allowed_nbrs)
         else:
             to, estimate, saved_state = self._act(pkg, allowed_nbrs)
-            reward = self.registerResentPkg(pkg, estimate, to, saved_state)
+            rewardMsg = self.registerResentPkg(pkg, estimate, to, saved_state)
             already_passed = False
             if self.bags_passed.get(pkg.id) is not None:
                 already_passed = True
@@ -146,7 +150,9 @@ class DQNPPORouter(LinkStateRouter, RewardAgent):
                     bag_info = self._getBagInfo(pkg.id)
                     # info = self._makeInfo(sender, saved_state, to, "reward")
                     rsar = bag_info.getPathLast()
-                    new_rsar = (rsar[0], rsar[1], rsar[2], "new_reward")
+                    # reward = self._countReward()
+                    new_reward = InstantMessagesSimulationFix.sendMsgAndReturn(self.id, sender, rewardMsg)
+                    new_rsar = (rsar[0], rsar[1], rsar[2], new_reward) #count reward
                     bag_info.updateLast(new_rsar)
                     bag_info.setQvalue(estimate)
                     bag_info.setState(saved_state)
@@ -163,7 +169,8 @@ class DQNPPORouter(LinkStateRouter, RewardAgent):
                 else:
                     InstantMessagesSimulationFix.sendMsg(self.id, sender, GetBagInfoMsg(self.id, pkg.id))
                     bag_info = self._getBagInfo(pkg.id)
-                    info = self._makeInfo(sender, saved_state, to, "reward")
+                    reward = InstantMessagesSimulationFix.sendMsgAndReturn(self.id, sender, rewardMsg)
+                    info = self._makeInfo(sender, saved_state, to, reward)
                     bag_info.append(info)
                     bag_info.setQvalue(estimate)
                     bag_info.setState(saved_state)
@@ -174,19 +181,19 @@ class DQNPPORouter(LinkStateRouter, RewardAgent):
                     # if not already_passed:
                     #     print(str(self.id) + ", package_id=" + str(pkg.id))
 
-
-            return to, [OutMessage(self.id, sender, reward)] if sender[0] != 'world' else [] #wtf
+            return to, []
+            # return to, [OutMessage(self.id, sender, rewardMsg)] if sender[0] != 'world' else [] #wtf
 
     def handleMsgFrom(self, sender: AgentId, msg: Message) -> List[Message]:
         # if self.id[1] >= 14 and self.id[1] <= 17:
         #     print("Find it")
         if isinstance(msg, RewardMsg):
-            action, Q_new, prev_state = self.receiveReward(msg)
-            self.memory.add((prev_state, action[1], -Q_new))
-
-            if self.use_reinforce:
-                self._replay()
-            return []
+            action, reward_new, prev_state = self.receiveReward(msg)
+            # self.memory.add((prev_state, action[1], -Q_new))
+            #
+            # if self.use_reinforce:
+            #     self._replay()
+            return reward_new
         elif isinstance(msg, GetBagInfoMsg):
             bag_info = self._popBagInfo(msg.bag_id)
             InstantMessagesSimulationFix.sendMsg(self.id, msg.origin, UpdateTableMsg(self.id, bag_info))
@@ -199,14 +206,33 @@ class DQNPPORouter(LinkStateRouter, RewardAgent):
 
             if msg.count != 0:
                 send_to = self._getPathBack(bag_info, msg.count)
-                # if msg.all_learn():
-                #     self._learn(bag_info, msg.count)
+                if msg.all_learn:
+                    self._learn(bag_info, msg.count)
                 InstantMessagesSimulationFix.sendMsg(self.id, send_to, msg)
-            # else:
-            #     self._learn(bag_info, msg.count)
+            else:
+                self._learn(bag_info, msg.count)
                 # print("learn bag_id=" + str(bag_info.bag_id) + ", agent_id=" + str(self.id))
         else:
             return super().handleMsgFrom(sender, msg)
+
+    def receiveReward(self, msg: RewardMsg): # omg1
+        try:
+            action, old_reward_data, saved_data = self._pending_pkgs.pop(msg.pkg.id)
+        except KeyError:
+            self.log(f'not our package: {msg.pkg}, path:\n  {msg.pkg.node_path}\n', force=True)
+            #raise
+            # Igor Buzhinsky's hack to suppress a no-key exception in receiveReward
+            action, old_reward_data, saved_data = self._last_tuple
+        reward = self._computeRewardPPO(msg, old_reward_data)
+        return action, reward, saved_data
+
+    def _computeRewardPPO(self, msg: ConveyorRewardMsg, old_reward_data):  # omg2
+        time_sent, _ = old_reward_data
+        time_processed, energy_gap = msg.reward_data
+        time_gap = time_processed - time_sent
+
+        # self.log('time gap: {}, nrg gap: {}'.format(time_gap, energy_gap), True)
+        return time_gap + self._e_weight * energy_gap
 
     def _sumRewards(self, bag_info, count):
         rewards = 0
