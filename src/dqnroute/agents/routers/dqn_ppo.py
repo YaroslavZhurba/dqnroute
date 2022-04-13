@@ -69,7 +69,7 @@ class DQNPPORouter(LinkStateRouter, RewardAgent):
                  use_single_neural_network: bool = False,
                  use_reinforce: bool = True,
                  use_combined_model: bool = False,
-                 count = 2,
+                 count = 3,
                  **kwargs):
         """
         Parameters added by Igor:
@@ -97,7 +97,7 @@ class DQNPPORouter(LinkStateRouter, RewardAgent):
 
         self.count = count
         self.cur_batch_size = 0
-        self.max_batch_size = 60
+        self.max_batch_size = 128
 
         # changed by Igor: brain loading process
         def load_brain():
@@ -231,7 +231,7 @@ class DQNPPORouter(LinkStateRouter, RewardAgent):
         # return time_gap
         return time_gap + self._e_weight * energy_gap
 
-        # return time_gap + energy_gap
+        # return time_gap + 0.*energy_gap
 
     def _sumRewards(self, bag_info, count):
         rewards = 0
