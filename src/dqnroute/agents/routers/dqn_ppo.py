@@ -69,7 +69,7 @@ class DQNPPORouter(LinkStateRouter, RewardAgent):
                  use_single_neural_network: bool = False,
                  use_reinforce: bool = True,
                  use_combined_model: bool = False,
-                 count = 3,
+                 count = 2,
                  **kwargs):
         """
         Parameters added by Igor:
@@ -96,6 +96,8 @@ class DQNPPORouter(LinkStateRouter, RewardAgent):
         self.use_combined_model = use_combined_model
 
         self.count = count
+        self.cur_batch_size = 0
+        self.max_batch_size = 60
 
         # changed by Igor: brain loading process
         def load_brain():
@@ -125,15 +127,11 @@ class DQNPPORouter(LinkStateRouter, RewardAgent):
         self.bags_passed = defaultdict(dict)
 
     def route(self, sender: AgentId, pkg: Package, allowed_nbrs: List[AgentId]) -> Tuple[AgentId, List[Message]]:
-        # if self.id[1] == 8 or self.id[1] == 6:
-        #     print('PREend route')
-        # if self.id[1] == 4 and allowed_nbrs[0][1] == 17:
-        #     print('PREend route')
         if self.max_act_time is not None and self.env.time() > self.max_act_time:
             return super().route(sender, pkg, allowed_nbrs)
         else:
             to, estimate, saved_state = self._act(pkg, allowed_nbrs)
-            rewardMsg = self.registerResentPkg(pkg, estimate, to, saved_state)
+            rewardMsg = self.registerResentPkgPPO(pkg, estimate, to, saved_state)
             already_passed = False
             if self.bags_passed.get(pkg.id) is not None:
                 already_passed = True
@@ -143,35 +141,23 @@ class DQNPPORouter(LinkStateRouter, RewardAgent):
             if sender[0] == 'world':
                 bag_info = Bag_info(pkg.id, saved_state, self.count)
                 bag_info.setQvalue(estimate)
-                # InstantMessagesSimulationFix.sendMsg(self.id, to, UpdateTableMsg(to, bag_info))
                 self._addBagInfoToStorage(bag_info)
             else:
                 if self.isThereBagInfo(pkg.id):
                     bag_info = self._getBagInfo(pkg.id)
-                    # info = self._makeInfo(sender, saved_state, to, "reward")
-                    rsar = bag_info.getPathLast()
-                    # reward = self._countReward()
-                    # new_reward = InstantMessagesSimulationFix.sendMsgAndReturn(self.id, sender, rewardMsg)
-                    # new_rsar = (rsar[0], rsar[1], rsar[2], new_reward) #count reward
-                    # bag_info.updateLast(new_rsar)
+                    reward = InstantMessagesSimulationFix.sendMsgAndReturn(self.id, sender, rewardMsg)
+                    info = self._makeInfo(sender, saved_state, to, reward)
+                    # bag_info.updateLast(info)
+                    bag_info.append(info)
                     bag_info.setQvalue(estimate)
                     bag_info.setState(saved_state)
                     self._addBagInfoToStorage(bag_info)
-
-                    # InstantMessagesSimulationFix.sendMsg(self.id, sender, PathRewardMsg(sender, bag_info, self.count))
-                    #
-                    # info = self._makeInfo(sender, saved_state, to, "reward")
-                    # bag_info = self._popBagInfoAndUpdate(pkg.id, estimate, info)
-                    # if bag_info.isFullPath():
-                    #     InstantMessagesSimulationFix.sendMsg(self.id, sender, PathRewardMsg(sender, bag_info, self.count))
-                    # InstantMessagesSimulationFix.sendMsg(self.id, to, UpdateTableMsg(to, bag_info))
-                    # print("bag_id=" + str(bag_info.bag_id)+ ", current_router="+str(self.id) + ", sent_to="+str(to)+";")
                 else:
                     InstantMessagesSimulationFix.sendMsg(self.id, sender, GetBagInfoMsg(self.id, pkg.id))
                     bag_info = self._getBagInfo(pkg.id)
-                    reward = InstantMessagesSimulationFix.sendMsgAndReturn(self.id, sender, rewardMsg)
-                    info = self._makeInfo(sender, saved_state, to, reward)
-                    bag_info.append(info)
+                    # reward = InstantMessagesSimulationFix.sendMsgAndReturn(self.id, sender, rewardMsg)
+                    # info = self._makeInfo(sender, saved_state, to, reward)
+                    # bag_info.append(info)
                     bag_info.setQvalue(estimate)
                     bag_info.setState(saved_state)
                     self._addBagInfoToStorage(bag_info)
@@ -183,21 +169,13 @@ class DQNPPORouter(LinkStateRouter, RewardAgent):
                                                              PathRewardMsg(sender, bag_info, self.count, True))
                     else:
                         InstantMessagesSimulationFix.sendMsg(self.id, sender, PathRewardMsg(sender, bag_info, self.count))
-                    # if not already_passed:
-                    #     print(str(self.id) + ", package_id=" + str(pkg.id))
 
             return to, []
             # return to, [OutMessage(self.id, sender, rewardMsg)] if sender[0] != 'world' else [] #wtf
 
     def handleMsgFrom(self, sender: AgentId, msg: Message) -> List[Message]:
-        # if self.id[1] >= 14 and self.id[1] <= 17:
-        #     print("Find it")
         if isinstance(msg, RewardMsg):
-            action, reward_new, prev_state = self.receiveReward(msg)
-            # self.memory.add((prev_state, action[1], -Q_new))
-            #
-            # if self.use_reinforce:
-            #     self._replay()
+            action, reward_new, prev_state = self.receiveRewardPPO(msg)
             return reward_new
         elif isinstance(msg, GetBagInfoMsg):
             bag_info = self._popBagInfo(msg.bag_id)
@@ -250,26 +228,34 @@ class DQNPPORouter(LinkStateRouter, RewardAgent):
         time_gap = time_processed - time_sent
 
         # self.log('time gap: {}, nrg gap: {}'.format(time_gap, energy_gap), True)
+        # return time_gap
         return time_gap + self._e_weight * energy_gap
+
+        # return time_gap + energy_gap
 
     def _sumRewards(self, bag_info, count):
         rewards = 0
+        gamma  = 1
+        discount = 1
         l = self.count
         for i in range(l - count, l):
             info = bag_info.getPathRouter(i)
-            rewards += info[3]
-        return rewards
+            rewards += discount*info[3]
+            discount *= gamma
+        return rewards, discount
 
     def _learn(self, bag_info, count):
         l = self.count
-        rewards = self._sumRewards(bag_info, l - count)
-        Q_new = rewards + bag_info.getQvalue()
+        rewards, discount = self._sumRewards(bag_info, l - count)
+        Q_new = rewards + discount*bag_info.getQvalue()
         action = bag_info.getPathRouter(count)[2]
         prev_state = bag_info.getState()
         self.memory.add((prev_state, action[1], -Q_new))
-
-        if self.use_reinforce:
-            self._replay()
+        self.cur_batch_size += 1
+        if self.cur_batch_size >= self.max_batch_size:
+            self.cur_batch_size = 0
+            if self.use_reinforce:
+                self._replay()
         return []
 
     def _makeInfo(self, router, state, action_to, reward):
@@ -362,7 +348,8 @@ class DQNPPORouter(LinkStateRouter, RewardAgent):
         Samples a batch of episodes from memory and stacks
         states, actions and values from a batch together.
         """
-        i_batch = self.memory.sample(self.batch_size)
+        # i_batch = self.memory.sample(self.batch_size)
+        i_batch = self.memory.getLastN(self.max_batch_size)
         batch = [b[1] for b in i_batch]
 
         states = stack_batch([l[0] for l in batch])

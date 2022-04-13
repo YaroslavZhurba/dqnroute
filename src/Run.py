@@ -1165,7 +1165,7 @@ if dqn_ppo_exists:
     # dqn_single_model_results = dqn_experiments(1, False, True, True, True, True)
 
     # use already pretrained model
-    dqn_single_model_results = dqn_ppo_experiments(1, False, True, True, True, True)
+    dqn_single_model_results = dqn_ppo_experiments(1, False, True, True, False, True)
 
 # sys.stdout = orig_stdout
 # f.close()

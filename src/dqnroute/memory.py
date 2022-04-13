@@ -29,6 +29,10 @@ class Memory(AbstractMemory):
         n = min(n, len(self.samples))
         return random.sample(self.samples, n)
 
+    def getLastN(self, n):
+        n = min(n, len(self.samples))
+        return self.samples[-n:]
+
 
 class SumTree:
     write = 0
