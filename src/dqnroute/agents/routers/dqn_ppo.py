@@ -69,7 +69,7 @@ class DQNPPORouter(LinkStateRouter, RewardAgent):
                  use_single_neural_network: bool = False,
                  use_reinforce: bool = True,
                  use_combined_model: bool = False,
-                 count = 3,
+                 count = 1, dqn_emb=False,
                  **kwargs):
         """
         Parameters added by Igor:
@@ -95,9 +95,14 @@ class DQNPPORouter(LinkStateRouter, RewardAgent):
         self.use_reinforce = use_reinforce
         self.use_combined_model = use_combined_model
 
-        self.count = count
+        self.dqn_emb = dqn_emb
+        if dqn_emb:
+            self.count = 1
+        else:
+            self.count = count
         self.cur_batch_size = 0
-        self.max_batch_size = 128
+        self.max_batch_size = 60
+
 
         # changed by Igor: brain loading process
         def load_brain():
@@ -168,7 +173,7 @@ class DQNPPORouter(LinkStateRouter, RewardAgent):
                         InstantMessagesSimulationFix.sendMsg(self.id, sender,
                                                              PathRewardMsg(sender, bag_info, self.count, True))
                     else:
-                        InstantMessagesSimulationFix.sendMsg(self.id, sender, PathRewardMsg(sender, bag_info, self.count))
+                        InstantMessagesSimulationFix.sendMsg(self.id, sender, PathRewardMsg(sender, bag_info, self.count, False))
 
             return to, []
             # return to, [OutMessage(self.id, sender, rewardMsg)] if sender[0] != 'world' else [] #wtf
@@ -235,9 +240,12 @@ class DQNPPORouter(LinkStateRouter, RewardAgent):
 
     def _sumRewards(self, bag_info, count):
         rewards = 0
-        gamma  = 1
+        gamma = 0.95
         discount = 1
         l = self.count
+
+        if self.dqn_emb:
+            gamma = 1
         for i in range(l - count, l):
             info = bag_info.getPathRouter(i)
             rewards += discount*info[3]
@@ -251,11 +259,15 @@ class DQNPPORouter(LinkStateRouter, RewardAgent):
         action = bag_info.getPathRouter(count)[2]
         prev_state = bag_info.getState()
         self.memory.add((prev_state, action[1], -Q_new))
-        self.cur_batch_size += 1
-        if self.cur_batch_size >= self.max_batch_size:
-            self.cur_batch_size = 0
+        if self.dqn_emb:
             if self.use_reinforce:
                 self._replay()
+        else:
+            self.cur_batch_size += 1
+            if self.cur_batch_size >= self.max_batch_size:
+                self.cur_batch_size = 0
+                if self.use_reinforce:
+                    self._replay()
         return []
 
     def _makeInfo(self, router, state, action_to, reward):
@@ -343,13 +355,17 @@ class DQNPPORouter(LinkStateRouter, RewardAgent):
 
         return tuple(input)
 
-    def _sampleMemStacked(self): #wtf
+    def _sampleMemStacked(self):
         """
         Samples a batch of episodes from memory and stacks
         states, actions and values from a batch together.
         """
         # i_batch = self.memory.sample(self.batch_size)
-        i_batch = self.memory.getLastN(self.max_batch_size)
+        i_batch = []
+        if self.dqn_emb:
+            i_batch = self.memory.sample(self.batch_size)
+        else:
+            i_batch = self.memory.getLastN(self.max_batch_size)
         batch = [b[1] for b in i_batch]
 
         states = stack_batch([l[0] for l in batch])
