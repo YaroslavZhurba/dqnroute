@@ -208,7 +208,7 @@ def conv_to_router(conv_topology):
     mapping = {}
     mapping_inv = {}
     for (i, aid) in enumerate(sorted(conv_topology.nodes)):
-        rid = ('router', i)
+        rid = (aid[0] + '_router', i) #  1337problem
         mapping[aid] = rid
         mapping_inv[rid] = aid
 

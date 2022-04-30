@@ -75,7 +75,7 @@ class RouterFactory(HandlerFactory):
         return kwargs
 
     def makeHandler(self, agent_id: AgentId, **kwargs) -> MessageHandler:
-        assert agent_id[0] == 'router', "Only routers are allowed in computer network"
+        # assert agent_id[0] == 'router', "Only routers are allowed in computer network" 1337p
         return self.RouterClass(**self._handlerArgs(agent_id, **kwargs))
 
     def centralized(self):
