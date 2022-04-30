@@ -233,7 +233,7 @@ class SimulationRunner:
         cfg = self.relevantConfig()
         return f'{self.data_dir}/{data_digest(cfg)}-{self.makeRunId(random_seed)}.csv'
 
-    def run(self, random_seed=None, ignore_saved=False,
+    def run(self, random_seed=1, ignore_saved=False,
             progress_step=None, progress_queue=None, **kwargs) -> EventSeries:
         """
         Runs the environment, optionally reporting the progress to a given queue.

@@ -442,6 +442,7 @@ class ConveyorRewardAgent(RewardAgent):
         
         # self.log('time gap: {}, nrg gap: {}'.format(time_gap, energy_gap), True)
         # return time_gap + self._e_weight * energy_gap
+        # return msg.Q_estimate + time_gap
         return msg.Q_estimate + time_gap + self._e_weight * energy_gap
 
     def _mkReward(self, bag: Bag, Q_estimate: float, reward_data) -> ConveyorRewardMsg: # omg4

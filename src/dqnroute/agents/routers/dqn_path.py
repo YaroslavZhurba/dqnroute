@@ -39,7 +39,7 @@ class SharedBrainStorage:
         return result
         
 
-class DQNRouter(LinkStateRouter, RewardAgent):
+class DQNPATHRouter(LinkStateRouter, RewardAgent):
     """
     A router which implements the DQN-routing algorithm.
     """
@@ -202,7 +202,7 @@ class DQNRouter(LinkStateRouter, RewardAgent):
         self._train(states, preds)
 
 
-class DQNRouterOO(DQNRouter):
+class DQNPATHRouterOO(DQNPATHRouter):
     """
     Variant of DQN router which uses Q-network with scalar output.
     """
@@ -247,9 +247,9 @@ class DQNRouterOO(DQNRouter):
         self._train(states, np.expand_dims(np.array(values, dtype=np.float32), axis=0))
 
 
-class DQNRouterEmb(DQNRouterOO):
+class DQNPATHRouterEmb(DQNPATHRouterOO):
     """
-    Variant of DQNRouter which uses graph embeddings instead of
+    Variant of DQNPATHRouter which uses graph embeddings instead of
     one-hot label encodings.
     """
     def __init__(self, embedding: Union[dict, Embedding], edges_num: int, **kwargs):
@@ -295,13 +295,13 @@ class DQNRouterEmb(DQNRouterOO):
             # self.log(pprint.pformat(self.embedding._X), force=self.id[1] == 0)
 
 
-class DQNRouterNetwork(NetworkRewardAgent, DQNRouter):
+class DQNPATHRouterNetwork(NetworkRewardAgent, DQNPATHRouter):
     pass
 
-class DQNRouterOONetwork(NetworkRewardAgent, DQNRouterOO):
+class DQNPATHRouterOONetwork(NetworkRewardAgent, DQNPATHRouterOO):
     pass
 
-class DQNRouterEmbNetwork(NetworkRewardAgent, DQNRouterEmb):
+class DQNPATHRouterEmbNetwork(NetworkRewardAgent, DQNPATHRouterEmb):
     pass
 
 
@@ -321,12 +321,12 @@ class ConveyorAddInputMixin:
             return super()._getAddInput(tag, nbr)
 
 
-class DQNRouterConveyor(LSConveyorMixin, ConveyorRewardAgent, ConveyorAddInputMixin, DQNRouter):
+class DQNPATHRouterConveyor(LSConveyorMixin, ConveyorRewardAgent, ConveyorAddInputMixin, DQNPATHRouter):
     pass
 
-class DQNRouterOOConveyor(LSConveyorMixin, ConveyorRewardAgent, ConveyorAddInputMixin, DQNRouterOO):
+class DQNPATHRouterOOConveyor(LSConveyorMixin, ConveyorRewardAgent, ConveyorAddInputMixin, DQNPATHRouterOO):
     pass
 
-class DQNRouterEmbConveyor(LSConveyorMixin, ConveyorRewardAgent, ConveyorAddInputMixin, DQNRouterEmb):
+class DQNPATHRouterEmbConveyor(LSConveyorMixin, ConveyorRewardAgent, ConveyorAddInputMixin, DQNPATHRouterEmb):
     pass
 

@@ -10,3 +10,4 @@ from .dqn import *
 from .ppo import *
 from .reinforce import *
 from .dqn_ppo import *
+from .dqn_path import *

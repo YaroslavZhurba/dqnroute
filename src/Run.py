@@ -454,7 +454,7 @@ if dqn_emb_exists:
     # dqn_single_model_results = dqn_experiments(1, False, True, True, True, True)
 
     # use already pretrained model
-    dqn_single_model_results = dqn_experiments(1, False, True, True, False, True)
+    dqn_single_model_results = dqn_experiments(1, False, True, True, False, True) #4
 
 # sys.stdout = orig_stdout
 # f.close()
@@ -1324,7 +1324,7 @@ if args.command == "run":
         reinforce_basic_series /= len(reinforce_serieses)
 
         series += [reinforce_basic_series]
-        print(f'REINFORCE mean time: {np.mean(reinforce_basic_series["energy_sum"])}')
+        print(f'REINFORCE mean time: {np.mean(reinforce_basic_series["time_avg"])}')
         series_types += ['reinforce_emb']
 
     # perform training/simulation with other approaches
