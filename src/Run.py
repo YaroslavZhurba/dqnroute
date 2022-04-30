@@ -988,7 +988,8 @@ def pretrain_dqn_ppo(
     def qnetwork_pretrain(net, data, optimizer="rmsprop", **kwargs):
         optimizer = get_optimizer(optimizer)(net.parameters())
         epochs_losses = []
-        for _ in tqdm(range(num_epochs), desc='DQN PPO Pretraining...'):
+        # for _ in tqdm(range(num_epochs), desc='DQN PPO Pretraining...'):
+        for _ in tqdm(range(num_epochs), desc='DQN PATH Pretraining...'):
             sum_loss = 0
             loss_cnt = 0
             for loss in qnetwork_pretrain_epoch(net, optimizer, data, **kwargs):
@@ -1003,7 +1004,7 @@ def pretrain_dqn_ppo(
         return epochs_losses
 
     data_conv = gen_episodes_progress(
-        'dqn_pp_oneout',  # TODO fix it
+        'dqn_oneout',  # TODO fix it
         generated_data_size,
         ignore_saved=True,
         context="conveyors",
@@ -1100,7 +1101,8 @@ def dqn_ppo_experiments(
 
     for _ in range(n):
         if process_pretrain:
-            print('Pretraining DQN PPO Models...')
+            # print('Pretraining DQN PPO Models...')
+            print('Pretraining DQN PATH Models...')
             dqn_losses = pretrain_dqn_ppo(
                 pretrain_data_size,
                 pretrain_epochs_num,
@@ -1113,10 +1115,12 @@ def dqn_ppo_experiments(
             print(f'Using the already pretrained model...')
 
         if process_train:
-            print('Training DQN PPO Model...')
+            # print('Training DQN PPO Model...')
+            print('Training DQN Path Model...')
             dqn_log, dqn_world = train_dqn_ppo(
                 train_data_size,
-                'dqn_ppo',
+                # 'dqn_ppo',
+                'dqn_path',
                 dir_with_models,
                 pretrain_filename,
                 train_filename,

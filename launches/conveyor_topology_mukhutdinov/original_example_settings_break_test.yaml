@@ -3,13 +3,13 @@ settings:
     sequence:
       - {bags_number: 200, delta: 20, sinks: [0, 1]}
       - {bags_number: 200, delta: 20}
-      - {action: 'conv_break', conv_idx: 6, pause: 100}
+#      - {action: 'conv_break', conv_idx: 6, pause: 100}
       - {bags_number: 200, delta: 20}
-      - {action: 'conv_break', conv_idx: 5, pause: 100}
+#      - {action: 'conv_break', conv_idx: 5, pause: 100}
       - {bags_number: 200, delta: 20}
-      - {action: 'conv_restore', conv_idx: 5, pause: 100}
+#      - {action: 'conv_restore', conv_idx: 5, pause: 100}
       - {bags_number: 200, delta: 20}
-      - {action: 'conv_restore', conv_idx: 6, pause: 100}
+#      - {action: 'conv_restore', conv_idx: 6, pause: 100}
       - {bags_number: 200, delta: 20}
 
   conveyor_env:

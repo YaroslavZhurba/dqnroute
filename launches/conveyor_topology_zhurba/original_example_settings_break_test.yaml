@@ -44,6 +44,13 @@ settings:
       embedding:
         alg: 'lap'
         dim: 10
+    dqn_path:
+      <<: *dqn
+      energy_reward_weight: 0.5
+      additional_inputs: [ ]
+      embedding:
+        alg: 'lap'
+        dim: 10
     ppo_emb:
       distance_function: 'euclid'
       energy_reward_weight: 0.5
