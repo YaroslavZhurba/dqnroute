@@ -1147,7 +1147,7 @@ if dqn_ppo_exists:
 
     dqn_emp_config = scenario['settings']['router']['dqn_ppo']
 
-    dir_with_models = 'conveyor_models_dqn_ppo'
+    dir_with_models = 'conveyor_models_dqn'
 
     pretrain_filename = f'pretrained{filename_suffix}'
     pretrain_path = Path(TORCH_MODELS_DIR) / dir_with_models / pretrain_filename
