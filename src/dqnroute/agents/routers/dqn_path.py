@@ -20,34 +20,16 @@ from ...networks import *
 
 logger = logging.getLogger(DQNROUTE_LOGGER)
 
-
-class InstantMessagesSimulationFix:
-
-    routers = defaultdict(dict)
-
-    @staticmethod
-    def addToSimulation(router):
-        InstantMessagesSimulationFix.routers[router.id] = router
-
-    @staticmethod
-    def sendMsg(sender: AgentId, to: AgentId, msg: Message):
-        InstantMessagesSimulationFix.routers[to].handleMsgFrom(sender, msg)
-
-    @staticmethod
-    def sendMsgAndReturn(sender: AgentId, to: AgentId, msg: Message):
-        return InstantMessagesSimulationFix.routers[to].handleMsgFrom(sender, msg)
-
-# нужна, когда юзаем single network wtf
 class SharedBrainStorage:
     INSTANCE = None
     PROCESSED_NODES = 0
-
+    
     @staticmethod
     def load(brain_loader: Callable[[], QNetwork], no_nodes: int) -> QNetwork:
         if SharedBrainStorage.INSTANCE is None:
             SharedBrainStorage.INSTANCE = brain_loader()
         SharedBrainStorage.PROCESSED_NODES += 1
-        # print(f"Brain initialization: {SharedBrainStorage.PROCESSED_NODES} / {no_nodes} agents")
+        #print(f"Brain initialization: {SharedBrainStorage.PROCESSED_NODES} / {no_nodes} agents")
         result = SharedBrainStorage.INSTANCE
         if SharedBrainStorage.PROCESSED_NODES == no_nodes:
             # all nodes have been processes
@@ -55,13 +37,12 @@ class SharedBrainStorage:
             SharedBrainStorage.INSTANCE = None
             SharedBrainStorage.PROCESSED_NODES = 0
         return result
+        
 
-
-class DQNPPORouter(LinkStateRouter, RewardAgent):
+class DQNRouter(LinkStateRouter, RewardAgent):
     """
     A router which implements the DQN-routing algorithm.
     """
-
     def __init__(self, batch_size: int, mem_capacity: int, nodes: List[AgentId],
                  optimizer='rmsprop', brain=None, random_init=False, max_act_time=None,
                  additional_inputs=[], softmax_temperature: float = 1.5,
@@ -69,7 +50,6 @@ class DQNPPORouter(LinkStateRouter, RewardAgent):
                  use_single_neural_network: bool = False,
                  use_reinforce: bool = True,
                  use_combined_model: bool = False,
-                 count = 1, dqn_emb=True, random_batch=True, gamma = 1, e_weight = 0.5,
                  **kwargs):
         """
         Parameters added by Igor:
@@ -86,7 +66,7 @@ class DQNPPORouter(LinkStateRouter, RewardAgent):
         self.additional_inputs = additional_inputs
         self.nodes = nodes
         self.max_act_time = max_act_time
-
+        
         # changed by Igor: custom temperatures for softmax:
         self.min_temp = softmax_temperature
         # added by Igor: probability smoothing (0 means no smoothing):
@@ -94,18 +74,6 @@ class DQNPPORouter(LinkStateRouter, RewardAgent):
 
         self.use_reinforce = use_reinforce
         self.use_combined_model = use_combined_model
-
-        self.random_batch = random_batch
-        self.dqn_emb = dqn_emb
-        if dqn_emb:
-            self.count = 1
-        else:
-            self.count = count
-        self.cur_batch_size = 0
-        self.max_batch_size = 60
-        self.gamma = gamma
-        self._e_weight = e_weight
-
 
         # changed by Igor: brain loading process
         def load_brain():
@@ -119,7 +87,6 @@ class DQNPPORouter(LinkStateRouter, RewardAgent):
                         b.change_label(load_filename)
                     b.restore()
             return b
-
         if use_single_neural_network:
             self.brain = SharedBrainStorage.load(load_brain, len(nodes))
         else:
@@ -129,178 +96,26 @@ class DQNPPORouter(LinkStateRouter, RewardAgent):
         self.optimizer = get_optimizer(optimizer)(self.brain.parameters())
         self.loss_func = nn.MSELoss()
 
-        InstantMessagesSimulationFix.addToSimulation(self)
-        self.bag_info_storage = defaultdict(dict)
-        # for debag usage
-        self.bags_passed = defaultdict(dict)
+
 
     def route(self, sender: AgentId, pkg: Package, allowed_nbrs: List[AgentId]) -> Tuple[AgentId, List[Message]]:
         if self.max_act_time is not None and self.env.time() > self.max_act_time:
             return super().route(sender, pkg, allowed_nbrs)
         else:
             to, estimate, saved_state = self._act(pkg, allowed_nbrs)
-            rewardMsg = self.registerResentPkgPPO(pkg, estimate, to, saved_state)
-            already_passed = False
-            if self.bags_passed.get(pkg.id) is not None:
-                already_passed = True
-                # print("AlreadyPassed")
-            self.bags_passed[pkg.id] = pkg
-            # return to, [OutMessage(self.id, sender, reward), OutMessage(self.id, to, "239")] if sender[0] != 'world' else [] #wtf
-            if sender[0] == 'world':
-                bag_info = Bag_info(pkg.id, saved_state, self.count)
-                bag_info.setQvalue(estimate)
-                self._addBagInfoToStorage(bag_info)
-            else:
-                if self.isThereBagInfo(pkg.id):
-                    bag_info = self._getBagInfo(pkg.id)
-                    reward = InstantMessagesSimulationFix.sendMsgAndReturn(self.id, sender, rewardMsg)
-                    info = self._makeInfo(sender, saved_state, to, reward)
-                    # bag_info.updateLast(info)
-                    bag_info.append(info)
-                    bag_info.setQvalue(estimate)
-                    bag_info.setState(saved_state)
-                    self._addBagInfoToStorage(bag_info)
-                else:
-                    InstantMessagesSimulationFix.sendMsg(self.id, sender, GetBagInfoMsg(self.id, pkg.id))
-                    bag_info = self._getBagInfo(pkg.id)
-                    # reward = InstantMessagesSimulationFix.sendMsgAndReturn(self.id, sender, rewardMsg)
-                    # info = self._makeInfo(sender, saved_state, to, reward)
-                    # bag_info.append(info)
-                    bag_info.setQvalue(estimate)
-                    bag_info.setState(saved_state)
-                    self._addBagInfoToStorage(bag_info)
-                bag_info = self._getBagInfo(pkg.id)
-                if bag_info.isFullPath():
-                    # to_num = to[1]
-                    to_type = to[0]
-                    if to_type == 'sink_router':
-                        InstantMessagesSimulationFix.sendMsg(self.id, sender,
-                                                             PathRewardMsg(sender, bag_info, self.count, True))
-                    else:
-                        InstantMessagesSimulationFix.sendMsg(self.id, sender, PathRewardMsg(sender, bag_info, self.count, False))
-
-            return to, []
-            # return to, [OutMessage(self.id, sender, rewardMsg)] if sender[0] != 'world' else [] #wtf
+            reward = self.registerResentPkg(pkg, estimate, to, saved_state)
+            return to, [OutMessage(self.id, sender, reward)] if sender[0] != 'world' else []
 
     def handleMsgFrom(self, sender: AgentId, msg: Message) -> List[Message]:
         if isinstance(msg, RewardMsg):
-            action, reward_new, prev_state = self.receiveRewardPPO(msg)
-            return reward_new
-        elif isinstance(msg, GetBagInfoMsg):
-            bag_info = self._popBagInfo(msg.bag_id)
-            InstantMessagesSimulationFix.sendMsg(self.id, msg.origin, UpdateTableMsg(self.id, bag_info))
-        elif isinstance(msg, UpdateTableMsg):
-            bag_info = msg.bag_info
-            self._addBagInfoToStorage(bag_info)
-        elif isinstance(msg, PathRewardMsg):
-            msg.count = msg.count - 1
-            bag_info = msg.bag_info
+            action, Q_new, prev_state = self.receiveReward(msg)
+            self.memory.add((prev_state, action[1], -Q_new))
 
-            if msg.count != 0:
-                send_to = self._getPathBack(bag_info, msg.count)
-                if msg.all_learn:
-                    self._learn(bag_info, msg.count)
-                InstantMessagesSimulationFix.sendMsg(self.id, send_to, msg)
-            else:
-                self._learn(bag_info, msg.count)
-                # print("learn bag_id=" + str(bag_info.bag_id) + ", agent_id=" + str(self.id))
-        else:
-            return super().handleMsgFrom(sender, msg)
-
-    def registerResentPkgPPO(self, pkg: Package, Q_estimate: float, action, data, **kwargs) -> RewardMsg:  # omg3
-        rdata = self._getRewardData(pkg, data)
-        self._pending_pkgs[pkg.id] = (action, rdata, data)
-
-        # Igor Buzhinsky's hack to suppress a no-key exception in receiveReward
-        self._last_tuple = action, rdata, data
-
-        return self._mkRewardPPO(pkg, Q_estimate, rdata)
-
-    def _mkRewardPPO(self, bag: Bag, Q_estimate: float, reward_data) -> ConveyorRewardMsg: # omg4
-        time_processed, energy_gap = reward_data
-        return ConveyorRewardMsg(self.id, bag, Q_estimate, time_processed, energy_gap)
-
-    def receiveRewardPPO(self, msg: RewardMsg): # omg1
-        try:
-            action, old_reward_data, saved_data = self._pending_pkgs.pop(msg.pkg.id)
-        except KeyError:
-            self.log(f'not our package: {msg.pkg}, path:\n  {msg.pkg.node_path}\n', force=True)
-            #raise
-            # Igor Buzhinsky's hack to suppress a no-key exception in receiveReward
-            action, old_reward_data, saved_data = self._last_tuple
-        reward = self._computeRewardPPO(msg, old_reward_data)
-        return action, reward, saved_data
-
-    def _computeRewardPPO(self, msg: ConveyorRewardMsg, old_reward_data):  # omg2
-        time_sent, _ = old_reward_data
-        time_processed, energy_gap = msg.reward_data
-        time_gap = time_processed - time_sent
-
-        # self.log('time gap: {}, nrg gap: {}'.format(time_gap, energy_gap), True)
-        # return time_gap
-        return time_gap + self._e_weight * energy_gap
-
-        # return time_gap + 0.*energy_gap
-
-    def _sumRewards(self, bag_info, count):
-        rewards = 0
-        gamma = self.gamma
-        discount = 1
-        l = self.count
-
-        if self.dqn_emb:
-            gamma = 0.95
-        for i in range(l - count, l):
-            info = bag_info.getPathRouter(i)
-            rewards += discount*info[3]
-            discount *= gamma
-        return rewards, discount
-
-    def _learn(self, bag_info, count):
-        l = self.count
-        rewards, discount = self._sumRewards(bag_info, l - count)
-        Q_new = rewards + discount*bag_info.getQvalue()
-        action = bag_info.getPathRouter(count)[2]
-        prev_state = bag_info.getState()
-        self.memory.add((prev_state, action[1], -Q_new))
-        if self.dqn_emb or self.random_batch:
             if self.use_reinforce:
                 self._replay()
+            return []
         else:
-            self.cur_batch_size += 1
-            if self.cur_batch_size >= self.max_batch_size:
-                self.cur_batch_size = 0
-                if self.use_reinforce:
-                    self._replay()
-        return []
-
-    def _makeInfo(self, router, state, action_to, reward):
-        return (router, state, action_to, reward)
-
-    def _getBagInfo(self, bag_id):
-        return self.bag_info_storage[bag_id]
-
-    def _popBagInfoAndUpdate(self, bag_id, estimate, info):
-        bag_info = self.bag_info_storage.pop(bag_id)
-        bag_info.append(info)
-        bag_info.setQvalue(estimate)
-        return bag_info
-
-    def _popBagInfo(self, bag_id):
-        return self.bag_info_storage.pop(bag_id)
-
-    def _getPathBack(self, bag_info, cnt):
-        info = bag_info.getPathRouter(cnt - 1)
-        return info[0]
-
-    def _addBagInfoToStorage(self, bag_info: Bag_info):
-        bag_id = bag_info.bag_id
-        self.bag_info_storage[bag_id] = bag_info
-
-    def isThereBagInfo(self, bag_id):
-        if self.bag_info_storage.get(bag_id) is None:
-            return False
-        return True
+            return super().handleMsgFrom(sender, msg)
 
     def _makeBrain(self, additional_inputs=[], **kwargs):
         return QNetwork(len(self.nodes), additional_inputs=additional_inputs, one_out=False, **kwargs)
@@ -319,9 +134,9 @@ class DQNPPORouter(LinkStateRouter, RewardAgent):
 
     def _predict(self, x):
         self.brain.eval()
-        return self.brain(*map(torch.from_numpy, x)).clone().detach().numpy() #wtf
+        return self.brain(*map(torch.from_numpy, x)).clone().detach().numpy()
 
-    def _train(self, x, y): #wtf
+    def _train(self, x, y):
         self.brain.train()
         self.optimizer.zero_grad()
         output = self.brain(*map(torch.from_numpy, x))
@@ -364,12 +179,7 @@ class DQNPPORouter(LinkStateRouter, RewardAgent):
         Samples a batch of episodes from memory and stacks
         states, actions and values from a batch together.
         """
-        # i_batch = self.memory.sample(self.batch_size)
-        i_batch = []
-        if self.dqn_emb or self.random_batch:
-            i_batch = self.memory.sample(self.batch_size)
-        else:
-            i_batch = self.memory.getLastN(self.max_batch_size)
+        i_batch = self.memory.sample(self.batch_size)
         batch = [b[1] for b in i_batch]
 
         states = stack_batch([l[0] for l in batch])
@@ -392,13 +202,10 @@ class DQNPPORouter(LinkStateRouter, RewardAgent):
         self._train(states, preds)
 
 
-class DQNPPORouterOO(DQNPPORouter):
+class DQNRouterOO(DQNRouter):
     """
     Variant of DQN router which uses Q-network with scalar output.
     """
-
-    # создает нейронную сеть, принимает d, n, y, G выход скаляр
-    # какой скаляр?? wtf
     def _makeBrain(self, additional_inputs=[], **kwargs):
         return QNetwork(len(self.nodes), additional_inputs=additional_inputs,
                         one_out=True, **kwargs)
@@ -407,10 +214,10 @@ class DQNPPORouterOO(DQNPPORouter):
         state = self._getNNState(pkg, allowed_nbrs)
         prediction = self._predict(state).flatten()
         distr = softmax(prediction, self.min_temp)
-
+        
         # Igor: probability smoothing
         distr = (1 - self.probability_smoothing) * distr + self.probability_smoothing / len(distr)
-
+        
         to_idx = sample_distr(distr)
         estimate = -np.dot(prediction, distr)
 
@@ -440,12 +247,11 @@ class DQNPPORouterOO(DQNPPORouter):
         self._train(states, np.expand_dims(np.array(values, dtype=np.float32), axis=0))
 
 
-class DQNPPORouterEmb(DQNPPORouterOO):
+class DQNRouterEmb(DQNRouterOO):
     """
-    Variant of DQNPPORouter which uses graph embeddings instead of
+    Variant of DQNRouter which uses graph embeddings instead of
     one-hot label encodings.
     """
-
     def __init__(self, embedding: Union[dict, Embedding], edges_num: int, **kwargs):
         # Those are used to only re-learn the embedding when the topology is changed
         self.prev_num_nodes = 0
@@ -475,29 +281,27 @@ class DQNPPORouterEmb(DQNPPORouterOO):
     def _nodeRepr(self, node):
         return self.embedding.transform(node).astype(np.float32)
 
-    def networkStateChanged(self): # wtf
+    def networkStateChanged(self):
         num_nodes = len(self.network.nodes)
         num_edges = len(self.network.edges)
 
-        if not self.network_initialized and num_nodes == len(self.nodes) and num_edges == self.init_edges_num: #wtf
+        if not self.network_initialized and num_nodes == len(self.nodes) and num_edges == self.init_edges_num:
             self.network_initialized = True
 
-        if self.network_initialized and (num_edges != self.prev_num_edges or num_nodes != self.prev_num_nodes): #wtf
+        if self.network_initialized and (num_edges != self.prev_num_edges or num_nodes != self.prev_num_nodes):
             self.prev_num_nodes = num_nodes
             self.prev_num_edges = num_edges
             self.embedding.fit(self.network, weight=self.edge_weight)
             # self.log(pprint.pformat(self.embedding._X), force=self.id[1] == 0)
 
 
-class DQNPPORouterNetwork(NetworkRewardAgent, DQNPPORouter):
+class DQNRouterNetwork(NetworkRewardAgent, DQNRouter):
     pass
 
-
-class DQNPPORouterOONetwork(NetworkRewardAgent, DQNPPORouterOO):
+class DQNRouterOONetwork(NetworkRewardAgent, DQNRouterOO):
     pass
 
-
-class DQNPPORouterEmbNetwork(NetworkRewardAgent, DQNPPORouterEmb):
+class DQNRouterEmbNetwork(NetworkRewardAgent, DQNRouterEmb):
     pass
 
 
@@ -505,7 +309,6 @@ class ConveyorAddInputMixin:
     """
     Mixin which adds conveyor-specific additional NN inputs support
     """
-
     def _getAddInput(self, tag, nbr=None):
         if tag == 'work_status':
             return np.array(
@@ -518,14 +321,12 @@ class ConveyorAddInputMixin:
             return super()._getAddInput(tag, nbr)
 
 
-class DQNPPORouterConveyor(LSConveyorMixin, ConveyorRewardAgent, ConveyorAddInputMixin, DQNPPORouter):
+class DQNRouterConveyor(LSConveyorMixin, ConveyorRewardAgent, ConveyorAddInputMixin, DQNRouter):
     pass
 
-
-class DQNPPORouterOOConveyor(LSConveyorMixin, ConveyorRewardAgent, ConveyorAddInputMixin, DQNPPORouterOO):
+class DQNRouterOOConveyor(LSConveyorMixin, ConveyorRewardAgent, ConveyorAddInputMixin, DQNRouterOO):
     pass
 
-
-class DQNPPORouterEmbConveyor(LSConveyorMixin, ConveyorRewardAgent, ConveyorAddInputMixin, DQNPPORouterEmb):
+class DQNRouterEmbConveyor(LSConveyorMixin, ConveyorRewardAgent, ConveyorAddInputMixin, DQNRouterEmb):
     pass
 
