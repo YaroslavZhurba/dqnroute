@@ -20,6 +20,22 @@ from ...networks import *
 
 logger = logging.getLogger(DQNROUTE_LOGGER)
 
+class InstantMessagesSimulationFix:
+
+    routers = defaultdict(dict)
+
+    @staticmethod
+    def addToSimulation(router):
+        InstantMessagesSimulationFix.routers[router.id] = router
+
+    @staticmethod
+    def sendMsg(sender: AgentId, to: AgentId, msg: Message):
+        InstantMessagesSimulationFix.routers[to].handleMsgFrom(sender, msg)
+
+    @staticmethod
+    def sendMsgAndReturn(sender: AgentId, to: AgentId, msg: Message):
+        return InstantMessagesSimulationFix.routers[to].handleMsgFrom(sender, msg)
+
 class SharedBrainStorage:
     INSTANCE = None
     PROCESSED_NODES = 0
