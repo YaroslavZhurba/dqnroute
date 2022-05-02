@@ -112,15 +112,24 @@ class DQNPATHRouter(LinkStateRouter, RewardAgent):
         self.optimizer = get_optimizer(optimizer)(self.brain.parameters())
         self.loss_func = nn.MSELoss()
 
+        InstantMessagesSimulationFix.addToSimulation(self)
+
+        self.bags_passed = defaultdict(dict)
 
 
     def route(self, sender: AgentId, pkg: Package, allowed_nbrs: List[AgentId]) -> Tuple[AgentId, List[Message]]:
         if self.max_act_time is not None and self.env.time() > self.max_act_time:
             return super().route(sender, pkg, allowed_nbrs)
         else:
+            already_passed = False
+            if self.bags_passed.get(pkg.id) is not None:
+                already_passed = True
             to, estimate, saved_state = self._act(pkg, allowed_nbrs)
             reward = self.registerResentPkg(pkg, estimate, to, saved_state)
-            return to, [OutMessage(self.id, sender, reward)] if sender[0] != 'world' else []
+            if already_passed:
+                InstantMessagesSimulationFix.sendMsg(self.id, sender, reward)
+            return to, []
+            # return to, [OutMessage(self.id, sender, reward)] if sender[0] != 'world' else []
 
     def handleMsgFrom(self, sender: AgentId, msg: Message) -> List[Message]:
         if isinstance(msg, RewardMsg):
