@@ -128,6 +128,8 @@ class DQNPATHRouter(LinkStateRouter, RewardAgent):
             reward = self.registerResentPkg(pkg, estimate, to, saved_state)
             if already_passed:
                 InstantMessagesSimulationFix.sendMsg(self.id, sender, reward)
+            else:
+                return to, [OutMessage(self.id, sender, reward)] if sender[0] != 'world' else []
             return to, []
             # return to, [OutMessage(self.id, sender, reward)] if sender[0] != 'world' else []
 
