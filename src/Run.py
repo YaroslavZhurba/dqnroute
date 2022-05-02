@@ -898,7 +898,7 @@ if reinforce_emb_exists:
 
     print(f'Reinforce model: {reinforce_pretrain_path}')
 
-    for _ in range(10):
+    for _ in range(1):
         PackageHistory.routers = defaultdict(dict)
         PackageHistory.rewards = defaultdict(list)
         PackageHistory.log_probs = defaultdict(list)

@@ -41,7 +41,7 @@ class PPOActor(SaveableModel):
 
             if self.embedding_shift:
                 delta_ = dst_ - addr_
-                input_tensors = torch.FloatTensor(delta_)
+                input_tensors = torch.FloatTensor(delta_) #vector
             else:
                 input_tensors = [addr_, dst_]
                 input_tensors = torch.cat(input_tensors, dim=1)
