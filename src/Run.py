@@ -1115,12 +1115,12 @@ def dqn_ppo_experiments(
             print(f'Using the already pretrained model...')
 
         if process_train:
-            # print('Training DQN PPO Model...')
-            print('Training DQN Path Model...')
+            print('Training DQN PPO Model...')
+            # print('Training DQN Path Model...')
             dqn_log, dqn_world = train_dqn_ppo(
                 train_data_size,
-                # 'dqn_ppo',
-                'dqn_path',
+                'dqn_ppo',
+                # 'dqn_path',
                 dir_with_models,
                 pretrain_filename,
                 train_filename,

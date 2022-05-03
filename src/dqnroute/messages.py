@@ -441,6 +441,11 @@ class PathRewardMsg(ServiceMessage):
         super().__init__(origin=origin, bag_info=bag_info, count=count, all_learn=all_learn)
 
 
+class PathEstimateMsg(ServiceMessage):
+    def __init__(self, origin: AgentId, pkg: Package, Q_estimate: float, reward_data):
+        super().__init__(origin=origin, pkg=pkg, Q_estimate=Q_estimate,
+                         reward_data=reward_data)
+
 class RewardMsg(ServiceMessage):
     def __init__(self, origin: AgentId, pkg: Package, Q_estimate: float, reward_data):
         super().__init__(origin=origin, pkg=pkg, Q_estimate=Q_estimate,

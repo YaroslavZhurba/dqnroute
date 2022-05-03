@@ -153,13 +153,25 @@ class DQNPPORouter(LinkStateRouter, RewardAgent):
             else:
                 if self.isThereBagInfo(pkg.id):
                     bag_info = self._getBagInfo(pkg.id)
-                    reward = InstantMessagesSimulationFix.sendMsgAndReturn(self.id, sender, rewardMsg)
+                    # origin = origin, pkg = pkg, Q_estimate = Q_estimate, reward_data = reward_data
+                    newRewardMsg = PathEstimateMsg(rewardMsg.origin, rewardMsg.pkg, rewardMsg.Q_estimate, rewardMsg.reward_data)
+                    reward = InstantMessagesSimulationFix.sendMsgAndReturn(self.id, sender, newRewardMsg)
                     info = self._makeInfo(sender, saved_state, to, reward)
                     # bag_info.updateLast(info)
                     bag_info.append(info)
                     bag_info.setQvalue(estimate)
                     bag_info.setState(saved_state)
                     self._addBagInfoToStorage(bag_info)
+                    bag_info = self._getBagInfo(pkg.id)
+                    if bag_info.isFullPath():
+                        # to_num = to[1]
+                        to_type = to[0]
+                        if to_type == 'sink_router':
+                            InstantMessagesSimulationFix.sendMsg(self.id, sender,
+                                                                 PathRewardMsg(sender, bag_info, self.count, True))
+                        else:
+                            InstantMessagesSimulationFix.sendMsg(self.id, sender,
+                                                                 PathRewardMsg(sender, bag_info, self.count, False))
                 else:
                     InstantMessagesSimulationFix.sendMsg(self.id, sender, GetBagInfoMsg(self.id, pkg.id))
                     bag_info = self._getBagInfo(pkg.id)
@@ -169,21 +181,30 @@ class DQNPPORouter(LinkStateRouter, RewardAgent):
                     bag_info.setQvalue(estimate)
                     bag_info.setState(saved_state)
                     self._addBagInfoToStorage(bag_info)
-                bag_info = self._getBagInfo(pkg.id)
-                if bag_info.isFullPath():
-                    # to_num = to[1]
-                    to_type = to[0]
-                    if to_type == 'sink_router':
-                        InstantMessagesSimulationFix.sendMsg(self.id, sender,
-                                                             PathRewardMsg(sender, bag_info, self.count, True))
-                    else:
-                        InstantMessagesSimulationFix.sendMsg(self.id, sender, PathRewardMsg(sender, bag_info, self.count, False))
+                    return to, [OutMessage(self.id, sender, rewardMsg)]
+                # bag_info = self._getBagInfo(pkg.id)
+                # if bag_info.isFullPath():
+                #     # to_num = to[1]
+                #     to_type = to[0]
+                #     if to_type == 'sink_router':
+                #         InstantMessagesSimulationFix.sendMsg(self.id, sender,
+                #                                              PathRewardMsg(sender, bag_info, self.count, True))
+                #     else:
+                #         InstantMessagesSimulationFix.sendMsg(self.id, sender, PathRewardMsg(sender, bag_info, self.count, False))
 
             return to, []
             # return to, [OutMessage(self.id, sender, rewardMsg)] if sender[0] != 'world' else [] #wtf
 
+
     def handleMsgFrom(self, sender: AgentId, msg: Message) -> List[Message]:
         if isinstance(msg, RewardMsg):
+            # action, Q_new, prev_state = self.receiveReward(msg)
+            # self.memory.add((prev_state, action[1], -Q_new))
+            #
+            # if self.use_reinforce:
+            #     self._replay()
+            return []
+        elif isinstance(msg, PathEstimateMsg):
             action, reward_new, prev_state = self.receiveRewardPPO(msg)
             return reward_new
         elif isinstance(msg, GetBagInfoMsg):
@@ -249,7 +270,7 @@ class DQNPPORouter(LinkStateRouter, RewardAgent):
         l = self.count
 
         if self.dqn_emb:
-            gamma = 0.95
+            gamma = 1
         for i in range(l - count, l):
             info = bag_info.getPathRouter(i)
             rewards += discount*info[3]
