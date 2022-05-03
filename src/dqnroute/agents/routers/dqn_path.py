@@ -36,6 +36,10 @@ class InstantMessagesSimulationFix:
     def sendMsgAndReturn(sender: AgentId, to: AgentId, msg: Message):
         return InstantMessagesSimulationFix.routers[to].handleMsgFrom(sender, msg)
 
+    @staticmethod
+    def checkRouterByBag(router_id, pkg):
+        return InstantMessagesSimulationFix.routers[router_id].bags_passed[pkg.id] == 2
+
 class SharedBrainStorage:
     INSTANCE = None
     PROCESSED_NODES = 0
@@ -124,10 +128,15 @@ class DQNPATHRouter(LinkStateRouter, RewardAgent):
             already_passed = False
             if self.bags_passed.get(pkg.id) is not None:
                 already_passed = True
+                self.bags_passed[pkg.id] += 1
+            else:
+                self.bags_passed[pkg.id] = 1
             to, estimate, saved_state = self._act(pkg, allowed_nbrs)
             reward = self.registerResentPkg(pkg, estimate, to, saved_state)
             if already_passed:
                 InstantMessagesSimulationFix.sendMsg(self.id, sender, reward)
+                if self.id[0] != 'diverter_router':
+                    print(self.id)
             else:
                 return to, [OutMessage(self.id, sender, reward)] if sender[0] != 'world' else []
             return to, []
@@ -135,6 +144,9 @@ class DQNPATHRouter(LinkStateRouter, RewardAgent):
 
     def handleMsgFrom(self, sender: AgentId, msg: Message) -> List[Message]:
         if isinstance(msg, RewardMsg):
+            if sender[0] == 'diverter_router' and not InstantMessagesSimulationFix.checkRouterByBag(sender, msg.pkg):
+                print(sender, msg.pkg)
+
             action, Q_new, prev_state = self.receiveReward(msg)
             self.memory.add((prev_state, action[1], -Q_new))
 
