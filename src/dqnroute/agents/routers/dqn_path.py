@@ -133,13 +133,21 @@ class DQNPATHRouter(LinkStateRouter, RewardAgent):
                 self.bags_passed[pkg.id] = 1
             to, estimate, saved_state = self._act(pkg, allowed_nbrs)
             reward = self.registerResentPkg(pkg, estimate, to, saved_state)
-            if already_passed:
-                InstantMessagesSimulationFix.sendMsg(self.id, sender, reward)
-                if self.id[0] != 'diverter_router':
-                    print(self.id)
+            if self.id[0] == 'diverter_router':
+                if already_passed:
+                    estimateMsg = self._getPathEstimateMsgByReward(reward)
+                    InstantMessagesSimulationFix.sendMsg(self.id, sender, estimateMsg)
+                    if self.id[0] != 'diverter_router':
+                        print(self.id)
+                    return to, []
+                else:
+                    return to, [OutMessage(self.id, sender, reward)] if sender[0] != 'world' else []
             else:
-                return to, [OutMessage(self.id, sender, reward)] if sender[0] != 'world' else []
-            return to, []
+                if sender[0] != 'world':
+                    estimateMsg = self._getPathEstimateMsgByReward(reward)
+                    InstantMessagesSimulationFix.sendMsg(self.id, sender, estimateMsg)
+                return to, []
+                # return to, [OutMessage(self.id, sender, estimateMsg)] if sender[0] != 'world' else []
             # return to, [OutMessage(self.id, sender, reward)] if sender[0] != 'world' else []
 
     def handleMsgFrom(self, sender: AgentId, msg: Message) -> List[Message]:
@@ -153,8 +161,21 @@ class DQNPATHRouter(LinkStateRouter, RewardAgent):
             if self.use_reinforce:
                 self._replay()
             return []
+        elif isinstance(msg, PathEstimateMsg):
+            if sender[0] == 'diverter_router' and not InstantMessagesSimulationFix.checkRouterByBag(sender, msg.pkg):
+                print(sender, msg.pkg)
+
+            action, Q_new, prev_state = self.receiveReward(msg)
+            self.memory.add((prev_state, action[1], -Q_new))
+
+            if self.use_reinforce:
+                self._replay()
+            return []
         else:
             return super().handleMsgFrom(sender, msg)
+
+    def _getPathEstimateMsgByReward(self, msg):
+        return PathEstimateMsg(msg.origin, msg.pkg, msg.Q_estimate, msg.reward_data)
 
     def _makeBrain(self, additional_inputs=[], **kwargs):
         return QNetwork(len(self.nodes), additional_inputs=additional_inputs, one_out=False, **kwargs)
