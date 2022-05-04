@@ -70,7 +70,8 @@ class DQNPATHRouter(LinkStateRouter, RewardAgent):
                  use_single_neural_network: bool = False,
                  use_reinforce: bool = True,
                  use_combined_model: bool = False,
-                 count = 1,  dqn_emb=True, random_batch=True, gamma = 1, e_weight = 0.5,
+                 count = 1,  dqn_emb=True, random_batch=True, gamma = 1,
+                 # e_weight = 0.5,
                  **kwargs):
         """
         Parameters added by Igor:
@@ -105,7 +106,7 @@ class DQNPATHRouter(LinkStateRouter, RewardAgent):
         self.cur_batch_size = 0
         self.max_batch_size = 60
         self.gamma = gamma
-        self._e_weight = e_weight
+        # self._e_weight = e_weight
 
         # changed by Igor: brain loading process
         def load_brain():
@@ -143,8 +144,11 @@ class DQNPATHRouter(LinkStateRouter, RewardAgent):
                 self.bags_passed[pkg.id] += 1
             else:
                 self.bags_passed[pkg.id] = 1
+
             to, estimate, saved_state = self._act(pkg, allowed_nbrs)
+            print(self.id, estimate)
             reward = self.registerResentPkg(pkg, estimate, to, saved_state)
+
             if sender[0] == 'world':
                 bag_info = Bag_info(pkg.id, saved_state, self.count)
                 bag_info.setQvalue(estimate)
@@ -153,10 +157,24 @@ class DQNPATHRouter(LinkStateRouter, RewardAgent):
             else:
                 if self.id[0] == 'diverter_router':
                     if already_passed:
-                        estimateMsg = self._getPathEstimateMsgByReward(reward)
-                        InstantMessagesSimulationFix.sendMsg(self.id, sender, estimateMsg)
-                        if self.id[0] != 'diverter_router':
-                            print(self.id)
+                        bag_info = self._getBagInfo(pkg.id)
+                        # origin = origin, pkg = pkg, Q_estimate = Q_estimate, reward_data = reward_data
+                        reward = InstantMessagesSimulationFix.sendMsgAndReturn(self.id, sender, reward)
+                        info = self._makeInfo(sender, saved_state, to, reward)
+                        bag_info.append(info)
+                        bag_info.setQvalue(estimate)
+                        bag_info.setState(saved_state)
+                        self._addBagInfoToStorage(bag_info)
+                        if bag_info.isFullPath():
+                            # to_num = to[1]
+                            to_type = to[0]
+                            if to_type == 'sink_router':
+                                InstantMessagesSimulationFix.sendMsg(self.id, sender,
+                                                                     PathRewardMsg(sender, bag_info, self.count, True))
+                            else:
+                                InstantMessagesSimulationFix.sendMsg(self.id, sender,
+                                                                     PathRewardMsg(sender, bag_info, self.count, False))
+                        # InstantMessagesSimulationFix.sendMsg(self.id, sender, reward)
                         return to, []
                     else:
                         InstantMessagesSimulationFix.sendMsg(self.id, sender, GetBagInfoMsg(self.id, pkg.id))
@@ -165,42 +183,40 @@ class DQNPATHRouter(LinkStateRouter, RewardAgent):
                         bag_info.setState(saved_state)
                         self._addBagInfoToStorage(bag_info)
                         return to, []
-                        # return to, [OutMessage(self.id, sender, reward)] if sender[0] != 'world' else []
                 else:
                     InstantMessagesSimulationFix.sendMsg(self.id, sender, GetBagInfoMsg(self.id, pkg.id))
                     bag_info = self._getBagInfo(pkg.id)
                     bag_info.setQvalue(estimate)
                     bag_info.setState(saved_state)
+                    reward = InstantMessagesSimulationFix.sendMsgAndReturn(self.id, sender, reward)
+                    info = self._makeInfo(sender, saved_state, to, reward)
+                    bag_info.append(info)
                     self._addBagInfoToStorage(bag_info)
-
-                    estimateMsg = self._getPathEstimateMsgByReward(reward)
-                    InstantMessagesSimulationFix.sendMsg(self.id, sender, estimateMsg)
+                    if bag_info.isFullPath():
+                        # to_num = to[1]
+                        to_type = to[0]
+                        if to_type == 'sink_router':
+                            InstantMessagesSimulationFix.sendMsg(self.id, sender,
+                                                                 PathRewardMsg(sender, bag_info, self.count, True))
+                        else:
+                            InstantMessagesSimulationFix.sendMsg(self.id, sender,
+                                                                 PathRewardMsg(sender, bag_info, self.count, False))
+                    # InstantMessagesSimulationFix.sendMsg(self.id, sender, reward)
                     return to, []
-
-                # return to, [OutMessage(self.id, sender, estimateMsg)] if sender[0] != 'world' else []
-            # return to, [OutMessage(self.id, sender, reward)] if sender[0] != 'world' else []
 
     def handleMsgFrom(self, sender: AgentId, msg: Message) -> List[Message]:
         if isinstance(msg, RewardMsg):
-            if sender[0] == 'diverter_router' and not InstantMessagesSimulationFix.checkRouterByBag(sender, msg.pkg):
-                print(sender, msg.pkg)
-
-            action, Q_new, prev_state = self.receiveReward(msg)
-            self.memory.add((prev_state, action[1], -Q_new))
-
-            if self.use_reinforce:
-                self._replay()
-            return []
-        elif isinstance(msg, PathEstimateMsg):
-            if sender[0] == 'diverter_router' and not InstantMessagesSimulationFix.checkRouterByBag(sender, msg.pkg):
-                print(sender, msg.pkg)
-
-            action, Q_new, prev_state = self.receiveReward(msg)
-            self.memory.add((prev_state, action[1], -Q_new))
-
-            if self.use_reinforce:
-                self._replay()
-            return []
+            # if sender[0] == 'diverter_router' and not InstantMessagesSimulationFix.checkRouterByBag(sender, msg.pkg):
+            #     print(sender, msg.pkg)
+            #
+            # action, Q_new, prev_state = self.receiveReward(msg)
+            # self.memory.add((prev_state, action[1], -Q_new))
+            #
+            # if self.use_reinforce:
+            #     self._replay()
+            # return []
+            action, reward_new, prev_state = self.receiveRewardPPO(msg)
+            return reward_new
         elif isinstance(msg, GetBagInfoMsg):
             bag_info = self._popBagInfo(msg.bag_id)
             InstantMessagesSimulationFix.sendMsg(self.id, msg.origin, UpdateTableMsg(self.id, bag_info))
@@ -258,6 +274,9 @@ class DQNPATHRouter(LinkStateRouter, RewardAgent):
         info = bag_info.getPathRouter(cnt - 1)
         return info[0]
 
+    def _makeInfo(self, router, state, action_to, reward):
+        return (router, state, action_to, reward)
+
     def _popBagInfo(self, bag_id):
         return self.bag_info_storage.pop(bag_id)
 
@@ -270,6 +289,28 @@ class DQNPATHRouter(LinkStateRouter, RewardAgent):
 
     def _getPathEstimateMsgByReward(self, msg):
         return PathEstimateMsg(msg.origin, msg.pkg, msg.Q_estimate, msg.reward_data)
+
+    def receiveRewardPPO(self, msg: RewardMsg): # omg1
+        try:
+            action, old_reward_data, saved_data = self._pending_pkgs.pop(msg.pkg.id)
+        except KeyError:
+            self.log(f'not our package: {msg.pkg}, path:\n  {msg.pkg.node_path}\n', force=True)
+            #raise
+            # Igor Buzhinsky's hack to suppress a no-key exception in receiveReward
+            action, old_reward_data, saved_data = self._last_tuple
+        reward = self._computeRewardPPO(msg, old_reward_data)
+        return action, reward, saved_data
+
+    def _computeRewardPPO(self, msg: ConveyorRewardMsg, old_reward_data):  # omg2
+        time_sent, _ = old_reward_data
+        time_processed, energy_gap = msg.reward_data
+        time_gap = time_processed - time_sent
+
+        # self.log('time gap: {}, nrg gap: {}'.format(time_gap, energy_gap), True)
+        # return time_gap
+        return time_gap + self._e_weight * energy_gap
+
+        # return time_gap + 0.*energy_gap
 
     def _makeBrain(self, additional_inputs=[], **kwargs):
         return QNetwork(len(self.nodes), additional_inputs=additional_inputs, one_out=False, **kwargs)
