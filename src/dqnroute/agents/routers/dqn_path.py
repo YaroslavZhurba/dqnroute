@@ -70,6 +70,7 @@ class DQNPATHRouter(LinkStateRouter, RewardAgent):
                  use_single_neural_network: bool = False,
                  use_reinforce: bool = True,
                  use_combined_model: bool = False,
+                 count = 1,  dqn_emb=True, random_batch=True, gamma = 1, e_weight = 0.5,
                  **kwargs):
         """
         Parameters added by Igor:
@@ -95,6 +96,17 @@ class DQNPATHRouter(LinkStateRouter, RewardAgent):
         self.use_reinforce = use_reinforce
         self.use_combined_model = use_combined_model
 
+        self.random_batch = random_batch
+        self.dqn_emb = dqn_emb
+        if dqn_emb:
+            self.count = 1
+        else:
+            self.count = count
+        self.cur_batch_size = 0
+        self.max_batch_size = 60
+        self.gamma = gamma
+        self._e_weight = e_weight
+
         # changed by Igor: brain loading process
         def load_brain():
             b = brain
@@ -117,7 +129,7 @@ class DQNPATHRouter(LinkStateRouter, RewardAgent):
         self.loss_func = nn.MSELoss()
 
         InstantMessagesSimulationFix.addToSimulation(self)
-
+        self.bag_info_storage = defaultdict(dict)
         self.bags_passed = defaultdict(dict)
 
 
@@ -133,20 +145,38 @@ class DQNPATHRouter(LinkStateRouter, RewardAgent):
                 self.bags_passed[pkg.id] = 1
             to, estimate, saved_state = self._act(pkg, allowed_nbrs)
             reward = self.registerResentPkg(pkg, estimate, to, saved_state)
-            if self.id[0] == 'diverter_router':
-                if already_passed:
-                    estimateMsg = self._getPathEstimateMsgByReward(reward)
-                    InstantMessagesSimulationFix.sendMsg(self.id, sender, estimateMsg)
-                    if self.id[0] != 'diverter_router':
-                        print(self.id)
-                    return to, []
-                else:
-                    return to, [OutMessage(self.id, sender, reward)] if sender[0] != 'world' else []
-            else:
-                if sender[0] != 'world':
-                    estimateMsg = self._getPathEstimateMsgByReward(reward)
-                    InstantMessagesSimulationFix.sendMsg(self.id, sender, estimateMsg)
+            if sender[0] == 'world':
+                bag_info = Bag_info(pkg.id, saved_state, self.count)
+                bag_info.setQvalue(estimate)
+                self._addBagInfoToStorage(bag_info)
                 return to, []
+            else:
+                if self.id[0] == 'diverter_router':
+                    if already_passed:
+                        estimateMsg = self._getPathEstimateMsgByReward(reward)
+                        InstantMessagesSimulationFix.sendMsg(self.id, sender, estimateMsg)
+                        if self.id[0] != 'diverter_router':
+                            print(self.id)
+                        return to, []
+                    else:
+                        InstantMessagesSimulationFix.sendMsg(self.id, sender, GetBagInfoMsg(self.id, pkg.id))
+                        bag_info = self._getBagInfo(pkg.id)
+                        bag_info.setQvalue(estimate)
+                        bag_info.setState(saved_state)
+                        self._addBagInfoToStorage(bag_info)
+                        return to, []
+                        # return to, [OutMessage(self.id, sender, reward)] if sender[0] != 'world' else []
+                else:
+                    InstantMessagesSimulationFix.sendMsg(self.id, sender, GetBagInfoMsg(self.id, pkg.id))
+                    bag_info = self._getBagInfo(pkg.id)
+                    bag_info.setQvalue(estimate)
+                    bag_info.setState(saved_state)
+                    self._addBagInfoToStorage(bag_info)
+
+                    estimateMsg = self._getPathEstimateMsgByReward(reward)
+                    InstantMessagesSimulationFix.sendMsg(self.id, sender, estimateMsg)
+                    return to, []
+
                 # return to, [OutMessage(self.id, sender, estimateMsg)] if sender[0] != 'world' else []
             # return to, [OutMessage(self.id, sender, reward)] if sender[0] != 'world' else []
 
@@ -171,8 +201,72 @@ class DQNPATHRouter(LinkStateRouter, RewardAgent):
             if self.use_reinforce:
                 self._replay()
             return []
+        elif isinstance(msg, GetBagInfoMsg):
+            bag_info = self._popBagInfo(msg.bag_id)
+            InstantMessagesSimulationFix.sendMsg(self.id, msg.origin, UpdateTableMsg(self.id, bag_info))
+        elif isinstance(msg, UpdateTableMsg):
+            bag_info = msg.bag_info
+            self._addBagInfoToStorage(bag_info)
+        elif isinstance(msg, PathRewardMsg):
+            msg.count = msg.count - 1
+            bag_info = msg.bag_info
+
+            if msg.count != 0:
+                send_to = self._getPathBack(bag_info, msg.count)
+                if msg.all_learn:
+                    self._learn(bag_info, msg.count)
+                InstantMessagesSimulationFix.sendMsg(self.id, send_to, msg)
+            else:
+                self._learn(bag_info, msg.count)
+                # print("learn bag_id=" + str(bag_info.bag_id) + ", agent_id=" + str(self.id))
         else:
             return super().handleMsgFrom(sender, msg)
+
+    def _sumRewards(self, bag_info, count):
+        rewards = 0
+        gamma = self.gamma
+        discount = 1
+        l = self.count
+
+        if self.dqn_emb:
+            gamma = 1
+        for i in range(l - count, l):
+            info = bag_info.getPathRouter(i)
+            rewards += discount*info[3]
+            discount *= gamma
+        return rewards, discount
+
+    def _learn(self, bag_info, count):
+        l = self.count
+        rewards, discount = self._sumRewards(bag_info, l - count)
+        Q_new = rewards + discount*bag_info.getQvalue()
+        action = bag_info.getPathRouter(count)[2]
+        prev_state = bag_info.getState()
+        self.memory.add((prev_state, action[1], -Q_new))
+        if self.dqn_emb or self.random_batch:
+            if self.use_reinforce:
+                self._replay()
+        else:
+            self.cur_batch_size += 1
+            if self.cur_batch_size >= self.max_batch_size:
+                self.cur_batch_size = 0
+                if self.use_reinforce:
+                    self._replay()
+        return []
+
+    def _getPathBack(self, bag_info, cnt):
+        info = bag_info.getPathRouter(cnt - 1)
+        return info[0]
+
+    def _popBagInfo(self, bag_id):
+        return self.bag_info_storage.pop(bag_id)
+
+    def _getBagInfo(self, bag_id):
+        return self.bag_info_storage[bag_id]
+
+    def _addBagInfoToStorage(self, bag_info: Bag_info):
+        bag_id = bag_info.bag_id
+        self.bag_info_storage[bag_id] = bag_info
 
     def _getPathEstimateMsgByReward(self, msg):
         return PathEstimateMsg(msg.origin, msg.pkg, msg.Q_estimate, msg.reward_data)
